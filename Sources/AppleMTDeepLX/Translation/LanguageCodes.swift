@@ -83,4 +83,22 @@ enum LanguageCodes {
     static var validCodesMessage: String {
         "unsupported language code; valid codes: \(validTargetCodes.joined(separator: ", "))"
     }
+
+    /// 语言码的本地化显示名（如“中文”），供设置界面展示；无法本地化时回退码本身。
+    static func displayName(for code: String) -> String {
+        let normalized = code.trimmingCharacters(in: .whitespaces).uppercased()
+        guard let identifier = toLocaleIdentifier[normalized],
+              let name = Locale.current.localizedString(forIdentifier: identifier),
+              !name.isEmpty else { return code }
+        return name
+    }
+
+    /// 基础语言码：规范化后取 `-` 前缀（EN-US → EN、ZH-HANS → ZH），供启用匹配使用。
+    static func baseCode(of code: String) -> String {
+        let normalized = code.trimmingCharacters(in: .whitespaces).uppercased()
+        if let dashIndex = normalized.firstIndex(of: "-") {
+            return String(normalized[normalized.startIndex..<dashIndex])
+        }
+        return normalized
+    }
 }

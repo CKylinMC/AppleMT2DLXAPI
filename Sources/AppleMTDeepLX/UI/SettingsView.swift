@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     @State private var showLoginApprovalAlert = false
+    /// 系统语言包安装状态探测结果（仅 UI 提示）
+    @State private var supportStatuses: [String: LanguageSupportStatus] = [:]
 
     private var settings: AppSettings {
         appState.store.settings
@@ -14,6 +16,7 @@ struct SettingsView: View {
             serviceSection
             networkSection
             translationSection
+            languageSection
             authSection
             generalSection
 
@@ -23,6 +26,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 560)
+        .task { supportStatuses = await LanguageSupportProbe.scan(codes: LanguageCodes.validTargetCodes) }
         .alert("配置错误", isPresented: errorAlertBinding) {
             Button("好", role: .cancel) {}
         } message: {
@@ -86,6 +90,78 @@ struct SettingsView: View {
         }
     }
 
+    private var languageSection: some View {
+        Section("语言") {
+            Picker("默认输入语言", selection: binding(\.defaultSourceCode)) {
+                Text("未设置").tag(String?.none)
+                ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                    Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
+                }
+            }
+            Picker("默认输出语言", selection: binding(\.defaultTargetCode)) {
+                Text("未设置").tag(String?.none)
+                ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                    Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
+                }
+            }
+            Toggle("强制使用默认输入语言", isOn: binding(\.forceDefaultSource))
+                .disabled(settings.defaultSourceCode == nil)
+            Toggle("强制使用默认输出语言", isOn: binding(\.forceDefaultTarget))
+                .disabled(settings.defaultTargetCode == nil)
+
+            DisclosureGroup("启用语言（已勾选 \(enabledLanguageCount)/\(LanguageCodes.validTargetCodes.count)）") {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                        ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                            languageRow(code)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                .frame(height: 240)
+            }
+
+            Text("未勾选任何语言 = 全部启用；默认语言需包含在启用列表内。未指定输出语言或输出与输入相同时使用默认输出语言；自动检测的输入语言不可用时使用默认输入语言。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// 启用语言勾选行：本地化名 + 码 + 系统安装状态徽标。
+    private func languageRow(_ code: String) -> some View {
+        Toggle(isOn: languageBinding(code)) {
+            HStack(spacing: 4) {
+                Text("\(LanguageCodes.displayName(for: code))（\(code)）")
+                    .lineLimit(1)
+                supportBadge(for: code)
+                Spacer(minLength: 0)
+            }
+        }
+        .toggleStyle(.checkbox)
+    }
+
+    /// 安装状态徽标：“未安装”为启发式提示（按参考语言对探测）。
+    @ViewBuilder
+    private func supportBadge(for code: String) -> some View {
+        switch supportStatuses[code] {
+        case .notInstalled:
+            Text("未安装")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        case .unsupported:
+            Text("不受支持")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        default:
+            EmptyView()
+        }
+    }
+
+    /// 已勾选的语言数（空集语义为全部启用，此处仅展示勾选数）。
+    private var enabledLanguageCount: Int {
+        settings.enabledLanguages.count
+    }
+
     private var authSection: some View {
         Section("鉴权") {
             Toggle("启用鉴权", isOn: binding(\.authEnabled))
@@ -118,6 +194,26 @@ struct SettingsView: View {
             set: { newValue in
                 do {
                     try appState.store.update { $0[keyPath: keyPath] = newValue }
+                    appState.errorMessage = nil
+                } catch {
+                    appState.errorMessage = error.localizedDescription
+                }
+            })
+    }
+
+    /// 启用语言成员资格绑定：勾选/取消经校验通道写回（如取消勾选当前默认语言会被拒绝并回弹）。
+    private func languageBinding(_ code: String) -> Binding<Bool> {
+        Binding(
+            get: { appState.store.settings.enabledLanguages.contains(code) },
+            set: { enabled in
+                do {
+                    try appState.store.update {
+                        if enabled {
+                            $0.enabledLanguages.insert(code)
+                        } else {
+                            $0.enabledLanguages.remove(code)
+                        }
+                    }
                     appState.errorMessage = nil
                 } catch {
                     appState.errorMessage = error.localizedDescription

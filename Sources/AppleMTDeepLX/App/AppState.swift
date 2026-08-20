@@ -29,7 +29,7 @@ final class AppState {
         let stats = ServerStats()
         let pool = TranslationSessionPool()
         let scheduler = TranslationScheduler(pool: pool, stats: stats)
-        let handler = DeepLXHandler(scheduler: scheduler)
+        let handler = DeepLXHandler(scheduler: scheduler, store: store)
         let authGuard = AuthGuard(store: store)
         let router = Router(handler: handler, authGuard: authGuard)
         let server = HTTPServer(router: router)

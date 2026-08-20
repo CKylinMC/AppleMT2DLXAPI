@@ -12,9 +12,11 @@ import os
 final class DeepLXHandler: Sendable {
     private let logger = Logger(subsystem: "in.ckyl.applemtdeeplx", category: "DeepLX")
     private let scheduler: TranslationScheduler
+    private let store: SettingsStore
 
-    init(scheduler: TranslationScheduler) {
+    init(scheduler: TranslationScheduler, store: SettingsStore) {
         self.scheduler = scheduler
+        self.store = store
     }
 
     // MARK: - 端点入口
@@ -88,27 +90,28 @@ final class DeepLXHandler: Sendable {
         targetLang: String?,
         buildPayload: ([TranslationResult], _ targetEcho: String) -> Payload
     ) async -> HTTPResponse {
-        // 目标语言校验
-        guard let targetLang, !targetLang.isEmpty else {
-            return errorResponse(400, "target_lang is required")
-        }
-        let targetEcho = targetLang.uppercased()
-        guard let targetLocale = LanguageCodes.localeLanguage(forTargetCode: targetLang) else {
-            return errorResponse(400, "unsupported target_lang \"\(targetLang)\"; \(LanguageCodes.validCodesMessage)")
+        // 读取语言策略快照（请求级生效，无需重启服务）
+        let settings = await MainActor.run { store.settings }
+        let policy = LanguagePolicy(settings: settings)
+
+        // 源语言解析（先源后标：目标语言的回退判断依赖已解析的源语言）
+        let sourceLocale: Locale.Language
+        switch resolveSourceLocale(sourceLang: sourceLang, texts: texts, policy: policy) {
+        case .success(let locale):
+            sourceLocale = locale
+        case .failure(let message):
+            return errorResponse(400, message)
         }
 
-        // 源语言校验与解析（auto / 缺省 → 检测）
-        guard LanguageCodes.isValidSourceCode(sourceLang) else {
-            return errorResponse(400, "unsupported source_lang \"\(sourceLang ?? "")\"; \(LanguageCodes.validCodesMessage)")
-        }
-        let sourceLocale: Locale.Language
-        if let resolved = LanguageCodes.localeLanguage(forSourceCode: sourceLang) {
-            sourceLocale = resolved
-        } else {
-            // 合并全文检测主导语言（同一请求内文本通常为同一语言）
-            let detectedCode = SourceLanguageDetector.detect(texts.joined(separator: "\n"))
-            sourceLocale = LanguageCodes.localeLanguage(forTargetCode: detectedCode)
-                ?? Locale.Language(identifier: "en")
+        // 目标语言解析（缺失/与源相同 → 回退默认输出）
+        let targetLocale: Locale.Language
+        let targetEcho: String
+        switch resolveTargetLocale(targetLang: targetLang, sourceLocale: sourceLocale, policy: policy) {
+        case .success(let resolved):
+            targetLocale = resolved.locale
+            targetEcho = resolved.echo
+        case .failure(let message):
+            return errorResponse(400, message)
         }
 
         do {
@@ -130,6 +133,105 @@ final class DeepLXHandler: Sendable {
             logger.error("翻译请求异常：\(error.localizedDescription, privacy: .public)")
             return errorResponse(503, "translation failed: \(error.localizedDescription)")
         }
+    }
+
+    // MARK: - 语言策略解析
+
+    /// 源语言解析结果：失败时携带 400 错误文案。
+    private enum SourceResolution {
+        case success(Locale.Language)
+        case failure(String)
+    }
+
+    /// 目标语言解析结果：成功时携带实际生效的语言与回填码。
+    private enum TargetResolution {
+        case success(locale: Locale.Language, echo: String)
+        case failure(String)
+    }
+
+    /// 解析源语言：强制默认 → 显式指定（校验启用）→ 自动检测（不可用时回退默认输入）。
+    private func resolveSourceLocale(
+        sourceLang: String?, texts: [String], policy: LanguagePolicy
+    ) -> SourceResolution {
+        // 强制使用默认输入语言：跳过检测与请求码
+        if policy.forceDefaultSource, let forced = policy.defaultSource, let code = policy.defaultSourceCode {
+            logger.notice("强制使用默认输入语言 \(code, privacy: .public)")
+            return .success(forced)
+        }
+
+        // 显式指定（非空且非 auto）
+        if let sourceLang, !sourceLang.isEmpty,
+           sourceLang.trimmingCharacters(in: .whitespaces).uppercased() != "AUTO" {
+            guard LanguageCodes.isValidSourceCode(sourceLang) else {
+                return .failure("unsupported source_lang \"\(sourceLang)\"; \(LanguageCodes.validCodesMessage)")
+            }
+            guard policy.isEnabled(sourceLang) else {
+                return .failure("source_lang \"\(sourceLang.uppercased())\" is disabled by server configuration")
+            }
+            return .success(LanguageCodes.localeLanguage(forSourceCode: sourceLang)!)
+        }
+
+        // auto / 缺省：合并全文检测主导语言（同一请求内文本通常为同一语言）
+        let detectedCode = SourceLanguageDetector.detect(texts.joined(separator: "\n"))
+        if let detectedCode, policy.isEnabled(detectedCode),
+           let locale = LanguageCodes.localeLanguage(forTargetCode: detectedCode) {
+            return .success(locale)
+        }
+        // 检测失败或检测出的语言不可用 → 回退默认输入语言
+        if let fallback = policy.defaultSource, let code = policy.defaultSourceCode {
+            logger.notice("输入语言不可用（检测：\(detectedCode ?? "失败", privacy: .public)），回退默认输入语言 \(code, privacy: .public)")
+            return .success(fallback)
+        }
+        // 未设置默认输入语言：保持存量行为（EN）
+        return .success(Locale.Language(identifier: "en"))
+    }
+
+    /// 解析目标语言：强制默认 → 缺失回退默认 → 显式指定（校验启用、与源相同回退默认）。
+    private func resolveTargetLocale(
+        targetLang: String?, sourceLocale: Locale.Language, policy: LanguagePolicy
+    ) -> TargetResolution {
+        // 强制使用默认输出语言
+        if policy.forceDefaultTarget, let forced = policy.defaultTarget, let code = policy.defaultTargetCode {
+            // 边界：强制后与源相同且请求显式指定了不同的合法目标时，优先尊重请求
+            if forced.minimalIdentifier == sourceLocale.minimalIdentifier,
+               let requested = targetLang,
+               policy.isEnabled(requested),
+               let requestedLocale = LanguageCodes.localeLanguage(forTargetCode: requested),
+               requestedLocale.minimalIdentifier != sourceLocale.minimalIdentifier {
+                logger.notice("强制默认输出与输入相同，改用请求指定的 \(requested.uppercased(), privacy: .public)")
+                return .success(locale: requestedLocale, echo: requested.uppercased())
+            }
+            logger.notice("强制使用默认输出语言 \(code, privacy: .public)")
+            return .success(locale: forced, echo: code)
+        }
+
+        // 缺失/空 → 回退默认输出语言
+        guard let targetLang, !targetLang.isEmpty else {
+            if let fallback = policy.defaultTarget, let code = policy.defaultTargetCode {
+                logger.notice("未指定输出语言，使用默认输出语言 \(code, privacy: .public)")
+                return .success(locale: fallback, echo: code)
+            }
+            return .failure("target_lang is required")
+        }
+
+        guard let locale = LanguageCodes.localeLanguage(forTargetCode: targetLang) else {
+            return .failure("unsupported target_lang \"\(targetLang)\"; \(LanguageCodes.validCodesMessage)")
+        }
+        guard policy.isEnabled(targetLang) else {
+            return .failure("target_lang \"\(targetLang.uppercased())\" is disabled by server configuration")
+        }
+
+        // 与源语言相同（minimalIdentifier 比较，与会话池 PairKey 同一规则）→ 回退默认输出
+        if locale.minimalIdentifier == sourceLocale.minimalIdentifier,
+           let fallback = policy.defaultTarget, let code = policy.defaultTargetCode,
+           fallback.minimalIdentifier != sourceLocale.minimalIdentifier {
+            logger.notice("输出与输入语言相同，改用默认输出语言 \(code, privacy: .public)")
+            return .success(locale: fallback, echo: code)
+        }
+        if locale.minimalIdentifier == sourceLocale.minimalIdentifier {
+            logger.debug("输出与输入语言相同且无可用默认输出，维持原语言对")
+        }
+        return .success(locale: locale, echo: targetLang.uppercased())
     }
 
     // MARK: - 辅助
@@ -163,7 +265,8 @@ final class DeepLXHandler: Sendable {
             default: break
             }
         }
-        guard let targetLang, !texts.isEmpty else { return nil }
+        // target_lang 允许缺失（由语言策略回退默认输出语言）
+        guard !texts.isEmpty else { return nil }
         return V2TranslateRequest(text: texts, source_lang: sourceLang, target_lang: targetLang)
     }
 

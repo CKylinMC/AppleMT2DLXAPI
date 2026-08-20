@@ -29,6 +29,8 @@
     │   └── LoginItemManager.swift   # SMAppService.mainApp 封装
     ├── Translation/                 # 翻译引擎
     │   ├── LanguageCodes.swift      # DeepL 码 ↔ Locale.Language 映射与校验
+    │   ├── LanguagePolicy.swift     # 语言策略：启用列表/默认语言/强制开关
+    │   ├── LanguageSupportProbe.swift    # 系统语言包安装状态探测（仅设置界面）
     │   ├── SourceLanguageDetector.swift  # NLLanguageRecognizer 源语言检测
     │   ├── TranslationEngineError.swift  # 带 HTTP 语义的错误类型
     │   ├── TranslationSessionPool.swift  # 会话池（LRU 8 对 / 空闲 10 分钟）
@@ -83,6 +85,17 @@ make clean                     # 清理派生数据与工程文件
 - **合批**：出队时合并队头连续同语言对作业（≤16 条文本）为一次 `translations(from:)`。
 - **端口回写防环**：自动选端口成功后先更新 `appliedServerSnapshot` 再回写设置，
   避免 `onChange` 触发重复重启（见 `AppState.applyServerState`）。
+- **语言策略**：启用列表/默认语言/强制开关由 `LanguagePolicy` 集中承载，在
+  `DeepLXHandler.translateAndRespond` 单点解析；请求级生效，变更无需重启服务、
+  不重建会话池（不在 `serverEquals` 字段内）。`enabledLanguages` 空集 = 全部启用；
+  “相同语言”比较统一用 `Locale.Language.minimalIdentifier`（与会话池 PairKey 一致）；
+  启用匹配按基础语言码两级规则（启用 EN 覆盖 EN-US）。显式请求被禁用语言 → 400；
+  检测出的输入语言不可用 → 回退默认输入语言（未设置时保持存量 EN 回退）。
+  设置界面的“未安装”标注为按参考语言对探测的启发式提示，运行时权威校验仍在
+  `TranslationSessionPool.createSession`。
+- **设置向后兼容**：`AppSettings` 手写 `init(from:)`（extension），新字段
+  `decodeIfPresent` + 默认值，旧版 `settings.v1` JSON 缺键不抛错；新增设置字段时
+  必须同步扩展手写解码，否则 `SettingsStore` 会静默重置全部配置。
 
 ## 打包与分发
 
@@ -182,4 +195,32 @@ curl -s $BASE/translate -H 'Authorization: DeepL-Auth-Key mykey' \
   -H 'Content-Type: application/json' -d '{"text":"hi","target_lang":"DE"}' # 200
 curl -s "$BASE/translate?token=mykey" -H 'Content-Type: application/json' \
   -d '{"text":"hi","target_lang":"DE"}'                                    # 200
+
+# ===== 语言策略（需先在设置中配置）=====
+
+# 14. 默认输出语言（设置默认输出为 ZH 后，省略 target_lang）
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"Hello world","source_lang":"EN"}'                            # 200，目标为 ZH
+curl -s $BASE/v2/translate -d 'text=Hello&source_lang=EN'                   # form 同上
+
+# 15. 输出与输入相同（已设默认输出 ZH）
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"Hello world","source_lang":"EN","target_lang":"EN"}'         # 200，目标改判为 ZH
+
+# 16. 启用列表（仅启用 ZH，其余禁用后）
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"hi","source_lang":"EN","target_lang":"DE"}'                  # 400 disabled
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"hi","source_lang":"EN","target_lang":"ZH"}'                  # 200
+
+# 17. 默认输入语言（禁用 DE、设默认输入为 EN 后，检测出德语）
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"Guten Tag","target_lang":"ZH"}'                              # 200，按 EN 处理
+
+# 18. 强制开关（开启“强制使用默认输出语言”后，请求指定其他目标仍用默认）
+curl -s $BASE/translate -H 'Content-Type: application/json' \
+  -d '{"text":"Hello","target_lang":"DE"}'                                  # 响应 target_lang 为默认输出
+
+# 19. 存量兼容（恢复默认设置：全不勾选、默认语言未设置、开关关闭）
+# 用例 1–13 结果应与未启用本功能时逐字节一致（省略 target_lang 仍 400）
 ```
