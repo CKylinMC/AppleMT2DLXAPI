@@ -10,6 +10,9 @@ import SwiftUI
 @MainActor
 @Observable
 final class SettingsWindowController: NSObject, NSWindowDelegate {
+    /// 窗口固定内容尺寸（侧栏 + 设置页）
+    private static let contentSize = NSSize(width: 780, height: 540)
+
     @ObservationIgnored private let appState: AppState
     @ObservationIgnored private var window: NSWindow?
 
@@ -40,17 +43,24 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         if let window { return window }
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 780, height: 540),
+            contentRect: NSRect(origin: .zero, size: Self.contentSize),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false)
         window.title = AppInfo.displayName
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.contentViewController = NSHostingController(
+
+        let hostingController = NSHostingController(
             rootView: SettingsWindowView()
                 .environment(appState)
                 .environment(self))
+        // 禁用按 SwiftUI 固有尺寸调整，避免窗口收缩到内容理想大小
+        hostingController.sizingOptions = []
+        window.contentViewController = hostingController
+        // 指派 contentViewController 后重新强制固定内容尺寸
+        window.setContentSize(Self.contentSize)
+
         // 兜底禁用缩放与全屏能力（styleMask 已不含 .resizable）
         window.standardWindowButton(.zoomButton)?.isEnabled = false
         window.collectionBehavior.remove(.fullScreenPrimary)
