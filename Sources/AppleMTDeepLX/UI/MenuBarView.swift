@@ -1,11 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// 菜单栏下拉菜单：启动/关闭（按状态切换文案）、复制地址、设置、关于、退出。
+/// 菜单栏下拉菜单：启动/关闭（按状态切换文案）、复制地址、设置、退出。
 struct MenuBarView: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.openSettings) private var openSettings
-    @State private var showAbout = false
+    @Environment(SettingsWindowController.self) private var windowController
 
     var body: some View {
         statusItem
@@ -21,21 +20,13 @@ struct MenuBarView: View {
         Divider()
 
         Button("设置…") {
-            openSettings()
-        }
-
-        Button("关于 AppleMTDeepLX") {
-            showAbout = true
+            windowController.show()
         }
 
         Divider()
 
-        Button("退出 AppleMTDeepLX") {
+        Button("退出 AT2DLX") {
             NSApp.terminate(nil)
-        }
-
-        .sheet(isPresented: $showAbout) {
-            AboutView()
         }
     }
 

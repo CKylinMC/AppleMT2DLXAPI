@@ -1,7 +1,9 @@
 import SwiftUI
 
-/// 设置窗口：服务、网络、翻译、鉴权、通用五个分区 + 运行状态面板。
+/// 设置窗口内容：按侧栏选中页面渲染服务、网络、翻译、语言、鉴权、通用分区或关于页。
 struct SettingsView: View {
+    let page: SettingsPage
+
     @Environment(AppState.self) private var appState
     @State private var showLoginApprovalAlert = false
     /// 系统语言包安装状态探测结果（仅 UI 提示）
@@ -12,33 +14,51 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            serviceSection
-            networkSection
-            translationSection
-            languageSection
-            authSection
-            generalSection
+        content
+            .task { supportStatuses = await LanguageSupportProbe.scan(codes: LanguageCodes.validTargetCodes) }
+            .alert("配置错误", isPresented: errorAlertBinding) {
+                Button("好", role: .cancel) {}
+            } message: {
+                Text(appState.errorMessage ?? "")
+            }
+            .alert("需要批准", isPresented: $showLoginApprovalAlert) {
+                Button("打开系统设置") {
+                    LoginItemManager.openSystemSettings()
+                }
+                Button("稍后", role: .cancel) {}
+            } message: {
+                Text("开机自启动已注册，请在“系统设置 → 通用 → 登录项与扩展”中批准本应用。")
+            }
+    }
 
-            Section("运行状态") {
-                StatusPanelView(stats: appState.stats)
+    /// 当前页面内容。detail 区始终由本视图承载，切换页面时 @State（探测结果、弹窗）得以保留。
+    @ViewBuilder
+    private var content: some View {
+        if page == .about {
+            AboutView()
+        } else {
+            Form {
+                switch page {
+                case .service:
+                    serviceSection
+                    Section("运行状态") {
+                        StatusPanelView(stats: appState.stats)
+                    }
+                case .network:
+                    networkSection
+                case .translation:
+                    translationSection
+                case .language:
+                    languageSection
+                case .auth:
+                    authSection
+                case .general:
+                    generalSection
+                case .about:
+                    EmptyView()
+                }
             }
-        }
-        .formStyle(.grouped)
-        .frame(width: 560)
-        .task { supportStatuses = await LanguageSupportProbe.scan(codes: LanguageCodes.validTargetCodes) }
-        .alert("配置错误", isPresented: errorAlertBinding) {
-            Button("好", role: .cancel) {}
-        } message: {
-            Text(appState.errorMessage ?? "")
-        }
-        .alert("需要批准", isPresented: $showLoginApprovalAlert) {
-            Button("打开系统设置") {
-                LoginItemManager.openSystemSettings()
-            }
-            Button("稍后", role: .cancel) {}
-        } message: {
-            Text("开机自启动已注册，请在“系统设置 → 通用 → 登录项与扩展”中批准本应用。")
+            .formStyle(.grouped)
         }
     }
 
@@ -67,7 +87,7 @@ struct SettingsView: View {
 
     private var networkSection: some View {
         Section("网络") {
-            TextField("端口", value: binding(\.port), format: .number)
+            TextField("端口", value: binding(\.port), format: IntegerFormatStyle<UInt16>().grouping(.never))
             Toggle("自动选择端口（端口被占用时向上探测）", isOn: binding(\.autoSelectPort))
             Toggle("允许局域网访问（监听 0.0.0.0）", isOn: binding(\.allowLAN))
             if settings.allowLAN {

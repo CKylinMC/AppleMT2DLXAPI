@@ -107,9 +107,9 @@ final class DeepLXHandler: Sendable {
         let targetLocale: Locale.Language
         let targetEcho: String
         switch resolveTargetLocale(targetLang: targetLang, sourceLocale: sourceLocale, policy: policy) {
-        case .success(let resolved):
-            targetLocale = resolved.locale
-            targetEcho = resolved.echo
+        case .success(let resolvedLocale, let resolvedEcho):
+            targetLocale = resolvedLocale
+            targetEcho = resolvedEcho
         case .failure(let message):
             return errorResponse(400, message)
         }

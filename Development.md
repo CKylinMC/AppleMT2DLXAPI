@@ -20,8 +20,9 @@
 │   └── Assets.xcassets              # 应用图标
 └── Sources/AppleMTDeepLX/
     ├── App/                         # 入口与编排
-    │   ├── AppleMTDeepLXApp.swift   # @main：MenuBarExtra + Settings 场景
-    │   ├── AppDelegate.swift        # accessory 激活策略（无 Dock 图标）
+    │   ├── AppleMTDeepLXApp.swift   # @main：MenuBarExtra（label 叠加服务状态圆点）
+    │   ├── AppDelegate.swift        # 激活策略切换（窗口开 .regular / 关 .accessory）
+    │   ├── SettingsWindowController.swift  # 自管设置窗口：固定尺寸、不可缩放/全屏
     │   └── AppState.swift           # 组合各模块；配置变更 → 服务热重启
     ├── Settings/                    # 配置与登录项
     │   ├── AppSettings.swift        # 配置模型与校验
@@ -47,7 +48,7 @@
     │   └── DeepLXHandler.swift      # 校验、调度、错误码映射
     ├── Auth/AuthGuard.swift         # Bearer / DeepL-Auth-Key / ?token=
     ├── Observability/ServerStats.swift
-    └── UI/                          # 菜单栏、设置、状态面板、关于
+    └── UI/                          # 菜单栏、设置窗口（侧栏分页）、状态面板、关于
 ```
 
 依赖方向单向：`UI → AppState → {HTTPServer, Scheduler, SettingsStore}`；
