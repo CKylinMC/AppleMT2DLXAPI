@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# bump —— 版本管理命令（scripts/bump.sh 的入口包装）。
+# 用法与帮助见 ./bump --help
+# 注：macOS 自带 GNU Make 3.81 会将 -- 开头参数当作 make 自身选项，
+#     因此带 -- 参数的调用请使用 ./bump（或 make bump -- --beta 形式）。
+exec bash "$(dirname "$0")/scripts/bump.sh" "$@"

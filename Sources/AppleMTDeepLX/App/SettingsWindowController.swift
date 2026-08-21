@@ -14,10 +14,12 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     private static let contentSize = NSSize(width: 780, height: 540)
 
     @ObservationIgnored private let appState: AppState
+    @ObservationIgnored private let updaterAccess: UpdaterAccess
     @ObservationIgnored private var window: NSWindow?
 
-    init(appState: AppState) {
+    init(appState: AppState, updaterAccess: UpdaterAccess) {
         self.appState = appState
+        self.updaterAccess = updaterAccess
         super.init()
     }
 
@@ -54,6 +56,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(
             rootView: SettingsWindowView()
                 .environment(appState)
+                .environment(updaterAccess)
                 .environment(self))
         // 禁用按 SwiftUI 固有尺寸调整，避免窗口收缩到内容理想大小
         hostingController.sizingOptions = []

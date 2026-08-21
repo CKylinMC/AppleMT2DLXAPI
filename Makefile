@@ -2,7 +2,7 @@ APP = AppleMTDeepLX
 SCHEME = $(APP)
 DERIVED = .build-derived
 
-.PHONY: all generate build run release clean
+.PHONY: all generate build run release clean bump
 
 all: generate build
 
@@ -24,3 +24,11 @@ run: build
 
 clean:
 	rm -rf $(DERIVED) $(APP).xcodeproj
+
+## 版本管理：推荐 ./bump（支持全部参数）；make bump 仅支持无 -- 前缀参数
+##   ./bump [patch|minor|major|X.Y.Z] [--beta] [--dump] [--no-commit] [--no-tag] [--help]
+bump:
+	@bash scripts/bump.sh $(filter-out bump,$(MAKECMDGOALS))
+
+# 兜底规则：吞掉 bump 透传的参数（如 minor / --beta），避免 make 报未知目标
+%: ; @:

@@ -12,17 +12,18 @@ enum AppInfo {
     }
 }
 
-/// GitHub 仓库相关链接（主页、反馈、最新版本）。
+/// GitHub 仓库相关链接（主页、反馈）。
 enum AppLinks {
     private static let repositoryBase = "https://github.com/CKylinMC/AppleMT2DLXAPI"
 
     static let repository = URL(string: repositoryBase)!
     static let issues = URL(string: "\(repositoryBase)/issues")!
-    static let latestRelease = URL(string: "\(repositoryBase)/releases/latest")!
 }
 
 /// 关于页：内嵌于设置窗口侧栏分页，展示图标、名称、版本、项目链接与版权。
 struct AboutView: View {
+    @Environment(UpdaterAccess.self) private var updaterAccess
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "character.bubble.fill")
@@ -49,7 +50,12 @@ struct AboutView: View {
             HStack(spacing: 10) {
                 linkButton("访问项目主页", systemImage: "globe", url: AppLinks.repository)
                 linkButton("意见反馈", systemImage: "bubble.left", url: AppLinks.issues)
-                linkButton("检查最新版本", systemImage: "arrow.up.circle", url: AppLinks.latestRelease)
+                Button {
+                    updaterAccess.checkForUpdates()
+                } label: {
+                    Label("检查最新版本", systemImage: "arrow.up.circle")
+                }
+                .buttonStyle(.bordered)
             }
 
             Divider()

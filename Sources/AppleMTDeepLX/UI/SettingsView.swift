@@ -5,6 +5,7 @@ struct SettingsView: View {
     let page: SettingsPage
 
     @Environment(AppState.self) private var appState
+    @Environment(UpdaterAccess.self) private var updaterAccess
     @State private var showLoginApprovalAlert = false
     /// 系统语言包安装状态探测结果（仅 UI 提示）
     @State private var supportStatuses: [String: LanguageSupportStatus] = [:]
@@ -230,6 +231,7 @@ struct SettingsView: View {
         }
     }
 
+    @ViewBuilder
     private var generalSection: some View {
         Section("通用") {
             Toggle("开机自启动", isOn: loginBinding)
@@ -239,6 +241,28 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        Section("软件更新") {
+            Toggle("自动检查更新", isOn: automaticChecksBinding)
+            Toggle("接收测试版更新", isOn: betaChannelBinding)
+        }
+    }
+
+    /// 自动检查更新绑定：直连 Sparkle 偏好（Sparkle 自带 UserDefaults 存储，不进 AppSettings）。
+    /// 属性变更后 Sparkle 会自动重置检查周期，无需手动调用。
+    private var automaticChecksBinding: Binding<Bool> {
+        Binding(
+            get: { updaterAccess.updater.automaticallyChecksForUpdates },
+            set: { updaterAccess.updater.automaticallyChecksForUpdates = $0 })
+    }
+
+    /// 测试版通道绑定：写入 UserDefaults 后重启检查周期使通道即时生效（UpdaterAccess 代理读取同一 key）。
+    private var betaChannelBinding: Binding<Bool> {
+        Binding(
+            get: { UserDefaults.standard.bool(forKey: "receiveBetaUpdates") },
+            set: { newValue in
+                UserDefaults.standard.set(newValue, forKey: "receiveBetaUpdates")
+                updaterAccess.updater.resetUpdateCycle()
+            })
     }
 
     // MARK: - 绑定

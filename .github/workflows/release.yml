@@ -1,0 +1,162 @@
+name: Release
+
+# tag 推送触发：仅放行 vX.Y.Z / vX.Y.Z-beta.N 形式（由 gate job 正则校验）
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  APP: AppleMTDeepLX
+  SPARKLE_VERSION: "2.9.6"
+
+jobs:
+  gate:
+    name: 校验 tag 格式
+    runs-on: ubuntu-latest
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - id: check
+        run: |
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "跳过非版本 tag：${GITHUB_REF_NAME}"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: 构建并发布
+    needs: gate
+    if: needs.gate.outputs.ok == 'true'
+    runs-on: macos-26
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 环境断言
+        run: |
+          xcodebuild -version
+          xcrun --show-sdk-version
+
+      - name: 安装 xcodegen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: 版本一致性校验
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION="$(sed -n 's/.*MARKETING_VERSION: "\(.*\)"/\1/p' project.yml)"
+          if [[ "$TAG_VERSION" != "$PROJECT_VERSION" ]]; then
+            echo "::error::tag 版本 $TAG_VERSION 与 project.yml MARKETING_VERSION（$PROJECT_VERSION）不一致，是否忘记 make bump？"
+            exit 1
+          fi
+
+      - name: Release 构建
+        run: make release
+
+      - name: 断言代码签名
+        run: codesign -dv ".build-derived/Build/Products/Release/$APP.app"
+
+      - name: 打包 zip
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent --sequesterRsrc --zlibCompressionLevel 9 \
+            ".build-derived/Build/Products/Release/$APP.app" \
+            "dist/$APP-${GITHUB_REF_NAME#v}.zip"
+
+      - name: 下载 Sparkle 工具链
+        run: |
+          curl -fsSL -o Sparkle.tar.xz \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          mkdir -p sparkle-bin
+          tar -xf Sparkle.tar.xz -C sparkle-bin
+
+      - name: EdDSA 签名更新包
+        env:
+          SPARKLE_EDDSA_KEY_B64: ${{ secrets.SPARKLE_EDDSA_KEY_B64 }}
+        run: |
+          if [[ -z "$SPARKLE_EDDSA_KEY_B64" ]]; then
+            echo "::error::缺少 Secret SPARKLE_EDDSA_KEY_B64（generate_keys -x 导出的私钥内容）"
+            exit 1
+          fi
+          printf '%s' "$SPARKLE_EDDSA_KEY_B64" > sparkle-key.txt
+          ZIP="dist/$APP-${GITHUB_REF_NAME#v}.zip"
+          OUT="$(sparkle-bin/bin/sign_update --ed-key-file sparkle-key.txt "$ZIP")"
+          rm -f sparkle-key.txt
+          SIG="$(sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p' <<< "$OUT")"
+          LEN="$(sed -n 's/.*length="\([^"]*\)".*/\1/p' <<< "$OUT")"
+          if [[ -z "$SIG" || -z "$LEN" ]]; then
+            echo "::error::sign_update 输出解析失败"
+            echo "$OUT"
+            exit 1
+          fi
+          echo "ED_SIGNATURE=$SIG" >> "$GITHUB_ENV"
+          echo "ZIP_LENGTH=$LEN" >> "$GITHUB_ENV"
+
+      - name: 生成分类更新日志
+        run: |
+          PREV_TAG="$(git tag -l 'v*' --merged HEAD --sort=-v:refname \
+            | awk -v cur="$GITHUB_REF_NAME" '$0 != cur { print; exit }')"
+          echo "上一 tag：${PREV_TAG:-（无，输出全部历史）}"
+          bash scripts/release-notes.sh ${PREV_TAG:+"$PREV_TAG"} HEAD > notes.md
+          bash scripts/release-notes.sh --html ${PREV_TAG:+"$PREV_TAG"} HEAD > notes.html
+
+      - name: 创建 GitHub Release
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          ARGS=(--title "$TAG" --notes-file notes.md)
+          # tag 含后缀（如 -beta.N）时标记为预发布
+          [[ "$TAG" == *-* ]] && ARGS+=(--prerelease)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" "${ARGS[@]}"
+            gh release upload "$TAG" dist/*.zip --clobber
+          else
+            gh release create "$TAG" "${ARGS[@]}" dist/*.zip
+          fi
+
+      - name: 更新 appcast.xml 并回推 main
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          VERSION="${TAG#v}"
+          CHANNEL=""
+          if [[ "$TAG" == *-* ]]; then CHANNEL="beta"; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3; do
+            git fetch origin main
+            git checkout -B main origin/main
+            bash scripts/update-appcast.sh \
+              --version "$VERSION" \
+              --url "https://github.com/${{ github.repository }}/releases/download/$TAG/$APP-$VERSION.zip" \
+              --signature "$ED_SIGNATURE" \
+              --length "$ZIP_LENGTH" \
+              ${CHANNEL:+--channel "$CHANNEL"} \
+              --notes-file notes.html
+            git add appcast.xml
+            if git diff --cached --quiet; then
+              echo "appcast 已是最新，跳过推送"
+              exit 0
+            fi
+            git commit -m "chore(release): publish appcast for $TAG"
+            if git push origin main; then
+              echo "appcast 已发布"
+              exit 0
+            fi
+            echo "推送被拒绝（第 $attempt/3 次），重试"
+            sleep 3
+          done
+          echo "::error::appcast 推送失败，请手工更新 appcast.xml"
+          exit 1

@@ -13,8 +13,15 @@
 ## 目录结构与模块职责
 
 ```
-├── project.yml                      # XcodeGen 工程定义（单一事实来源）
-├── Makefile                         # generate / build / release / run / clean
+├── project.yml                      # XcodeGen 工程定义（单一事实来源，含版本号与 Sparkle 依赖）
+├── Makefile                         # generate / build / release / run / clean / bump
+├── bump                             # 版本管理命令入口（推荐，支持全部参数）
+├── appcast.xml                      # Sparkle 更新源（由 CI 自动维护，勿手改）
+├── scripts/
+│   ├── bump.sh                      # 版本计算、写入、提交与打 tag
+│   ├── release-notes.sh             # Conventional Commits 分类更新日志
+│   └── update-appcast.sh            # appcast.xml 条目插入/去重
+├── .github/workflows/release.yml    # tag 触发的自动发布流水线
 ├── Resources/
 │   ├── Info.plist                   # LSUIElement、版本、zh-Hans
 │   └── Assets.xcassets              # 应用图标
@@ -23,6 +30,7 @@
     │   ├── AppleMTDeepLXApp.swift   # @main：MenuBarExtra（label 叠加服务状态圆点）
     │   ├── AppDelegate.swift        # 激活策略切换（窗口开 .regular / 关 .accessory）
     │   ├── SettingsWindowController.swift  # 自管设置窗口：固定尺寸、不可缩放/全屏
+    │   ├── UpdaterAccess.swift      # Sparkle 更新器包装（@Observable 环境注入载体）与通道代理
     │   └── AppState.swift           # 组合各模块；配置变更 → 服务热重启
     ├── Settings/                    # 配置与登录项
     │   ├── AppSettings.swift        # 配置模型与校验
@@ -62,6 +70,7 @@ make build                     # = xcodegen generate + xcodebuild (Debug)
 make release                   # Release 构建
 make run                       # 构建并启动应用
 make clean                     # 清理派生数据与工程文件
+./bump --dump                  # 查看当前版本（版本管理见下文）
 ```
 
 产物位置：`.build-derived/Build/Products/<Configuration>/AppleMTDeepLX.app`。
@@ -100,6 +109,8 @@ make clean                     # 清理派生数据与工程文件
 
 ## 打包与分发
 
+正式发布走上述 tag 触发的自动流水线；以下仅供本地手工分发参考。
+
 ```bash
 make release
 ```
@@ -118,6 +129,74 @@ make release
    hdiutil create -volname AppleMTDeepLX -srcfolder AppleMTDeepLX.app \
      -ov -format UDZO AppleMTDeepLX-1.0.0.dmg
    ```
+
+## 版本管理与发布
+
+### 版本单一事实来源
+
+`project.yml` 的 `MARKETING_VERSION`（展示版本）与 `CURRENT_PROJECT_VERSION`（构建号，
+Sparkle 以此比较新旧）。`Info.plist` 版本键为构建期插值（`$(MARKETING_VERSION)`），
+勿手工改版本。每次 bump 两个字段同步变更，构建号必 +1（否则客户端检测不到更新）。
+
+### bump 命令
+
+```bash
+./bump                    # patch +1：1.0.0 -> v1.0.1；当前为 beta 时定稿（去后缀）
+./bump minor              # 1.0.0 -> v1.1.0
+./bump major              # 1.0.0 -> v2.0.0
+./bump --beta             # 1.0.0 -> v1.0.1-beta.1；已是 beta 时递增 -beta.N
+./bump v2.0.0-beta.2      # 指定版本（可带 v 前缀与 beta 后缀，自动识别）
+./bump --dump             # 仅输出当前版本号
+./bump --no-commit        # 写入但不自动 commit（需同时 --no-tag）
+./bump --no-tag           # 不创建 tag
+./bump --help             # 帮助
+```
+
+macOS 自带 GNU Make 3.81 会把 `--` 开头参数当作自身选项，因此带旗标的调用请用
+`./bump`（或 `make bump -- --beta` 形式）；`make bump minor` 等无旗标形式可直接用。
+
+默认行为：写入 project.yml → `chore(release): vX.Y.Z` 提交 → 打 tag `vX.Y.Z`。
+防呆：脏工作区拒绝执行、拒绝降级/重复版本、tag 已存在报错。
+
+### 发布流水线（GitHub Actions）
+
+推送 tag `vX.Y.Z`（或 `vX.Y.Z-beta.N`）后 `.github/workflows/release.yml` 自动执行：
+
+1. 校验 tag 格式与 project.yml 版本一致性
+2. `make release` 构建，断言 ad-hoc 签名
+3. `ditto` 打包 zip，用 Sparkle `sign_update` EdDSA 签名
+4. 按 Conventional Commits 生成分类更新日志（feat→新增功能 / fix→问题修复 /
+   perf→性能优化 / 其余→其他）
+5. 创建 GitHub Release（tag 带后缀时标记 prerelease）
+6. 更新 `appcast.xml`（beta 条目带 `sparkle:channel="beta"`）并回推 main
+
+### Sparkle 密钥（一次性配置）
+
+```bash
+# 下载 Sparkle 官方二进制包（Sparkle-x.y.z.tar.xz）解压后：
+bin/generate_keys                 # 私钥存入本机钥匙串，务必妥善备份
+bin/generate_keys -p              # 输出公钥 → 填入 Info.plist 的 SUPublicEDKey
+bin/generate_keys -x key.txt      # 导出私钥（base64）→ 存入仓库 Secret：SPARKLE_EDDSA_KEY_B64
+```
+
+Secrets 清单：`SPARKLE_EDDSA_KEY_B64`。私钥泄露需重新生成密钥对并发布桥接版本。
+
+### 手工回滚已发布的版本
+
+```bash
+git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z   # 删 tag
+gh release delete vX.Y.Z --yes --cleanup-tag             # 删 Release 与资产
+# 从 appcast.xml 移除对应 <item> 后提交推送
+```
+
+### Sparkle 集成要点
+
+- SPM 依赖钉死于 `project.yml`（`exactVersion`）：`*.xcodeproj` 被 gitignore，
+  Package.resolved 无法提交，靠钉版保证 CI 可复现。
+- `SPUStandardUpdaterController` 是 ObjC 类（不符合 Observable），经 `UpdaterAccess`
+  （`@Observable` 包装）注入 SwiftUI 环境；通道代理按 `receiveBetaUpdates`
+  偏好返回允许通道（刻意存于 Sparkle 自带 UserDefaults，不进 AppSettings）。
+- beta 分发：单 appcast + item 级 `sparkle:channel="beta"`，稳定用户默认不收 beta。
 
 ## 签名说明
 

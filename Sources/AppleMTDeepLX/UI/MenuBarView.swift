@@ -1,10 +1,11 @@
 import AppKit
 import SwiftUI
 
-/// 菜单栏下拉菜单：启动/关闭（按状态切换文案）、复制地址、设置、退出。
+/// 菜单栏下拉菜单：启动/关闭（按状态切换文案）、复制地址、检查更新、设置、退出。
 struct MenuBarView: View {
     @Environment(AppState.self) private var appState
     @Environment(SettingsWindowController.self) private var windowController
+    @Environment(UpdaterAccess.self) private var updaterAccess
 
     var body: some View {
         statusItem
@@ -18,6 +19,10 @@ struct MenuBarView: View {
         }
 
         Divider()
+
+        Button("检查更新…") {
+            updaterAccess.checkForUpdates()
+        }
 
         Button("设置…") {
             windowController.show()

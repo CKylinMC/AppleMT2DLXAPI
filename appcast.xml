@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>AppleMTDeepLX Releases</title>
+    <link>https://raw.githubusercontent.com/CKylinMC/AppleMT2DLXAPI/main/appcast.xml</link>
+    <description>AT2DLX 本地翻译服务自动更新源</description>
+    <language>zh-hans</language>
+  </channel>
+</rss>
