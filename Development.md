@@ -20,7 +20,8 @@
 ├── scripts/
 │   ├── bump.sh                      # 版本计算、写入、提交与打 tag
 │   ├── release-notes.sh             # Conventional Commits 分类更新日志
-│   └── update-appcast.sh            # appcast.xml 条目插入/去重
+│   ├── update-appcast.sh            # appcast.xml 条目插入/去重
+│   └── sign-release.sh              # 分发前统一 adhoc 深重签（CI 与本地共用）
 ├── .github/workflows/release.yml    # tag 触发的自动发布流水线
 ├── Resources/
 │   ├── Info.plist                   # LSUIElement、版本、zh-Hans
@@ -113,6 +114,7 @@ make clean                     # 清理派生数据与工程文件
 
 ```bash
 make release
+bash scripts/sign-release.sh .build-derived/Build/Products/Release/AppleMTDeepLX.app   # 分发前必须统一重签（原因见“签名说明”）
 ```
 
 分发方式（按正式程度递增）：
@@ -163,7 +165,8 @@ macOS 自带 GNU Make 3.81 会把 `--` 开头参数当作自身选项，因此�
 推送 tag `vX.Y.Z`（或 `vX.Y.Z-beta.N`）后 `.github/workflows/release.yml` 自动执行：
 
 1. 校验 tag 格式与 project.yml 版本一致性
-2. `make release` 构建，断言 ad-hoc 签名
+2. `make release` 构建 → `scripts/sign-release.sh` 统一 adhoc 深重签 → 启动自检（真实启动判活，
+   拦截 dyld 拒绝加载的坏包）
 3. `ditto` 打包 zip，用 Sparkle `sign_update` EdDSA 签名
 4. 按 Conventional Commits 生成分类更新日志（feat→新增功能 / fix→问题修复 /
    perf→性能优化 / 其余→其他）
@@ -209,6 +212,13 @@ gh release delete vX.Y.Z --yes --cleanup-tag             # 删 Release 与资产
 | Developer ID | 需 Apple 开发者账号 + 公证 | 可分发；SMAppService 与 Translation 行为最稳定 |
 
 注意：
+- **adhoc 分发必须整包深重签**：构建产物中主程序与 SPM 内嵌的 Sparkle.framework
+  是两次独立的 adhoc 密封，hardened runtime 下 dyld 库校验会判 "different Team IDs"
+  拒绝加载，启动即崩溃。分发前一律执行 `bash scripts/sign-release.sh <App.app>`
+  （`--deep` 由内而外重签并去除 runtime 标志）。注意 `codesign --verify` 无法检出
+  此类缺陷（坏包也能通过 `--verify --deep --strict`），因此流水线额外包含启动自检。
+- 未来改用 Developer ID 签名 + 公证时，需把 `sign-release.sh` 改为逐组件由内而外
+  签名并恢复 hardened runtime（Apple 不建议对真实证书使用 `--deep`）。
 - 未开启 App Sandbox（`ENABLE_APP_SANDBOX: NO`），本地监听无需额外 entitlement；
   若改为沙盒构建，需补充 `com.apple.security.network.server`。
 - 开机自启动要求应用位于稳定路径（/Applications），构建目录下注册不可靠。

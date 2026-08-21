@@ -67,8 +67,26 @@ jobs:
       - name: Release 构建
         run: make release
 
-      - name: 断言代码签名
-        run: codesign -dv ".build-derived/Build/Products/Release/$APP.app"
+      - name: 统一 adhoc 重签并验证
+        run: bash scripts/sign-release.sh ".build-derived/Build/Products/Release/$APP.app"
+
+      # 静态 verify 无法检出“双重独立 adhoc 签名”类缺陷（坏包也能通过
+      # --verify --deep --strict），必须真实启动判活，防止再次发布 dyld
+      # 拒绝加载的坏包。默认配置不启动服务、不注册登录项，无副作用。
+      - name: 启动自检（拦截 dyld 无法加载的坏包）
+        run: |
+          APP_PATH=".build-derived/Build/Products/Release/$APP.app"
+          "$APP_PATH/Contents/MacOS/$APP" > launch.log 2>&1 &
+          PID=$!
+          sleep 6
+          if kill -0 "$PID" 2>/dev/null; then
+            kill "$PID"
+            echo "启动自检通过：进程存活超过 6 秒"
+          else
+            echo "::error::应用启动即退出（典型为签名/库加载问题），日志如下："
+            cat launch.log
+            exit 1
+          fi
 
       - name: 打包 zip
         run: |
