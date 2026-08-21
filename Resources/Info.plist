@@ -33,7 +33,7 @@
 	<key>SUFeedURL</key>
 	<string>https://raw.githubusercontent.com/CKylinMC/AppleMT2DLXAPI/main/appcast.xml</string>
 	<key>SUPublicEDKey</key>
-	<string>&lt;REPLACE_WITH_EDDSA_PUBLIC_KEY&gt;</string>
+	<string>cXf7ATAlZmMNGFUNnk5uPa23Sicnkw3ixvlpmas8fnc=</string>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 </dict>

@@ -11,3 +11,8 @@ xcuserdata/
 # Swift
 .build/
 .swiftpm/
+
+# Other
+.env
+.env.local
+.env.build
