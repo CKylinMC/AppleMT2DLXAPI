@@ -16,7 +16,7 @@
 ├── project.yml                      # XcodeGen 工程定义（单一事实来源，含版本号与 Sparkle 依赖）
 ├── Makefile                         # generate / build / release / run / clean / bump
 ├── bump                             # 版本管理命令入口（推荐，支持全部参数）
-├── appcast.xml                      # Sparkle 更新源（由 CI 自动维护，勿手改）
+├── appcast.xml                      # Sparkle 更新源初始模板（正式内容由 release 分支维护）
 ├── scripts/
 │   ├── bump.sh                      # 版本计算、写入、提交与打 tag
 │   ├── release-notes.sh             # Conventional Commits 分类更新日志
@@ -168,7 +168,8 @@ macOS 自带 GNU Make 3.81 会把 `--` 开头参数当作自身选项，因此�
 4. 按 Conventional Commits 生成分类更新日志（feat→新增功能 / fix→问题修复 /
    perf→性能优化 / 其余→其他）
 5. 创建 GitHub Release（tag 带后缀时标记 prerelease）
-6. 更新 `appcast.xml`（beta 条目带 `sparkle:channel="beta"`）并回推 main
+6. 更新 `appcast.xml`（beta 条目带 `sparkle:channel="beta"`）并推送到专用 `release` 孤儿分支
+   （仅存 appcast.xml，首次发布自动创建，不污染 main）
 
 ### Sparkle 密钥（一次性配置）
 
@@ -186,7 +187,8 @@ Secrets 清单：`SPARKLE_EDDSA_KEY_B64`。私钥泄露需重新生成密钥对�
 ```bash
 git tag -d vX.Y.Z && git push origin :refs/tags/vX.Y.Z   # 删 tag
 gh release delete vX.Y.Z --yes --cleanup-tag             # 删 Release 与资产
-# 从 appcast.xml 移除对应 <item> 后提交推送
+# 从 release 分支的 appcast.xml 移除对应 <item> 后提交推送
+#   git checkout release && 编辑 appcast.xml && git commit && git push origin release
 ```
 
 ### Sparkle 集成要点

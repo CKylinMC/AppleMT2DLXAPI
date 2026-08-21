@@ -127,7 +127,7 @@ jobs:
             gh release create "$TAG" "${ARGS[@]}" dist/*.zip
           fi
 
-      - name: 更新 appcast.xml 并回推 main
+      - name: 更新 appcast.xml 并推送到 release 分支
         run: |
           TAG="$GITHUB_REF_NAME"
           VERSION="${TAG#v}"
@@ -136,8 +136,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           for attempt in 1 2 3; do
-            git fetch origin main
-            git checkout -B main origin/main
+            # release 为专用孤儿分支，仅存 appcast.xml；不存在时用仓库模板初始化
+            git fetch origin release || true
+            if git show-ref --verify --quiet refs/remotes/origin/release; then
+              git checkout -B release origin/release
+            else
+              git checkout --orphan release
+              git rm -rf --quiet .
+              git show "$GITHUB_REF_NAME":appcast.xml > appcast.xml
+            fi
+            # 从 tag 提取脚本（不入索引），避免 release 分支混入其他文件
+            mkdir -p scripts
+            git show "$GITHUB_REF_NAME":scripts/update-appcast.sh > scripts/update-appcast.sh
             bash scripts/update-appcast.sh \
               --version "$VERSION" \
               --url "https://github.com/${{ github.repository }}/releases/download/$TAG/$APP-$VERSION.zip" \
@@ -151,12 +161,12 @@ jobs:
               exit 0
             fi
             git commit -m "chore(release): publish appcast for $TAG"
-            if git push origin main; then
+            if git push origin release; then
               echo "appcast 已发布"
               exit 0
             fi
             echo "推送被拒绝（第 $attempt/3 次），重试"
             sleep 3
           done
-          echo "::error::appcast 推送失败，请手工更新 appcast.xml"
+          echo "::error::appcast 推送失败，请手工更新 release 分支的 appcast.xml"
           exit 1

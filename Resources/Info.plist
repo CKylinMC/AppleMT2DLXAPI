@@ -31,7 +31,7 @@
 	<key>CFBundleIconName</key>
 	<string>AppIcon</string>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/CKylinMC/AppleMT2DLXAPI/main/appcast.xml</string>
+	<string>https://raw.githubusercontent.com/CKylinMC/AppleMT2DLXAPI/release/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>cXf7ATAlZmMNGFUNnk5uPa23Sicnkw3ixvlpmas8fnc=</string>
 	<key>SUEnableAutomaticChecks</key>
