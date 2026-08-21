@@ -63,6 +63,9 @@ jobs:
             echo "::error::tag 版本 $TAG_VERSION 与 project.yml MARKETING_VERSION（$PROJECT_VERSION）不一致，是否忘记 make bump？"
             exit 1
           fi
+          # 构建号供后续 appcast 使用（Sparkle 依赖它判断更新新旧）
+          BUILD_NUMBER="$(sed -n 's/.*CURRENT_PROJECT_VERSION: "\(.*\)"/\1/p' project.yml)"
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
 
       - name: Release 构建
         run: make release
@@ -85,6 +88,20 @@ jobs:
           else
             echo "::error::应用启动即退出（典型为签名/库加载问题），日志如下："
             cat launch.log
+            exit 1
+          fi
+
+      # Sparkle 用 CFBundleVersion 与 appcast 的 sparkle:version 比较新旧，
+      # 构建产物版本号错误会导致更新永远无法下发，必须拦截。
+      - name: 产物版本号校验
+        run: |
+          APP_PATH=".build-derived/Build/Products/Release/$APP.app"
+          PLIST="$APP_PATH/Contents/Info.plist"
+          SHORT="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$PLIST")"
+          BUILD="$(/usr/libexec/PlistBuddy -c 'Print CFBundleVersion' "$PLIST")"
+          echo "产物版本：$SHORT（build $BUILD），预期：${GITHUB_REF_NAME#v}（build $BUILD_NUMBER）"
+          if [[ "$SHORT" != "${GITHUB_REF_NAME#v}" || "$BUILD" != "$BUILD_NUMBER" ]]; then
+            echo "::error::产物版本号与 tag/project.yml 不一致"
             exit 1
           fi
 
@@ -168,6 +185,7 @@ jobs:
             git show "$GITHUB_REF_NAME":scripts/update-appcast.sh > scripts/update-appcast.sh
             bash scripts/update-appcast.sh \
               --version "$VERSION" \
+              --build "$BUILD_NUMBER" \
               --url "https://github.com/${{ github.repository }}/releases/download/$TAG/$APP-$VERSION.zip" \
               --signature "$ED_SIGNATURE" \
               --length "$ZIP_LENGTH" \

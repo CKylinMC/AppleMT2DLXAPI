@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# bump.sh —— 版本管理脚本：计算新版本、写入 project.yml、提交并打 tag。
+# bump.sh —— 版本管理脚本：计算新版本、写入 project.yml、重新生成 Xcode 工程、提交并打 tag。
 # 版本单一事实来源为 project.yml 的 MARKETING_VERSION / CURRENT_PROJECT_VERSION。
 set -euo pipefail
 
@@ -150,6 +150,19 @@ sed -E -i '' "s|(MARKETING_VERSION: \").*(\")|\1$NEW\2|" "$PROJECT_YML"
 sed -E -i '' "s|(CURRENT_PROJECT_VERSION: \").*(\")|\1$NEW_BUILD\2|" "$PROJECT_YML"
 
 echo "${CUR} -> ${NEW}（build ${NEW_BUILD}）"
+
+# ---------- 同步重新生成 Xcode 工程 ----------
+# .xcodeproj 为 xcodegen 生成的本地产物（gitignore）；bump 后若不重新生成，
+# 本地直接用 Xcode 构建会沿用 pbxproj 里的旧版本号。
+if command -v xcodegen >/dev/null 2>&1; then
+    if xcodegen generate --quiet; then
+        echo "已重新生成 Xcode 工程（版本号已同步）"
+    else
+        echo "警告：xcodegen generate 失败，构建前请手动执行 make generate" >&2
+    fi
+else
+    echo "提示：未检测到 xcodegen，构建前请先 make generate，否则本地构建仍为旧版本号" >&2
+fi
 
 # ---------- 提交与打 tag ----------
 if (( ! NO_COMMIT )); then
