@@ -116,9 +116,8 @@ struct SettingsView: View {
         Section("语言") {
             Picker("默认输入语言", selection: defaultLanguageBinding(\.defaultSourceCode)) {
                 Text("未设置").tag(String?.none)
-                ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                ForEach(supportedLanguageCodes, id: \.self) { code in
                     Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
-                        .disabled(supportStatuses[code] == .unsupported)
                 }
             }
             fieldError(.defaultSourceLanguage)
@@ -127,9 +126,8 @@ struct SettingsView: View {
             }
             Picker("默认输出语言", selection: defaultLanguageBinding(\.defaultTargetCode)) {
                 Text("未设置").tag(String?.none)
-                ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                ForEach(supportedLanguageCodes, id: \.self) { code in
                     Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
-                        .disabled(supportStatuses[code] == .unsupported)
                 }
             }
             fieldError(.defaultTargetLanguage)
@@ -141,10 +139,10 @@ struct SettingsView: View {
             Toggle("强制使用默认输出语言", isOn: binding(\.forceDefaultTarget))
                 .disabled(settings.defaultTargetCode == nil)
 
-            DisclosureGroup("启用语言（已勾选 \(enabledLanguageCount)/\(LanguageCodes.validTargetCodes.count)）") {
+            DisclosureGroup("启用语言（已勾选 \(enabledLanguageCount)/\(supportedLanguageCodes.count)）") {
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
-                        ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
+                        ForEach(supportedLanguageCodes, id: \.self) { code in
                             languageRow(code)
                         }
                     }
@@ -158,6 +156,11 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// 可展示的语言：过滤系统不支持的语言（探测未完成时全部放行，避免异步竞态）。
+    private var supportedLanguageCodes: [String] {
+        LanguageCodes.validTargetCodes.filter { supportStatuses[$0] != .unsupported }
     }
 
     /// 当前默认语言是否被探测为系统不支持（探测属 UI 启发式，不进 validationIssues）。
@@ -186,7 +189,8 @@ struct SettingsView: View {
         .toggleStyle(.checkbox)
     }
 
-    /// 安装状态徽标：“未安装”为启发式提示（按参考语言对探测）。
+    /// 安装状态徽标：“未安装”为启发式提示（按参考语言对探测）；
+    /// 不受支持的语言已从列表过滤，不再展示。
     @ViewBuilder
     private func supportBadge(for code: String) -> some View {
         switch supportStatuses[code] {
@@ -194,10 +198,6 @@ struct SettingsView: View {
             Text("未安装")
                 .font(.caption2)
                 .foregroundStyle(.orange)
-        case .unsupported:
-            Text("不受支持")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
         default:
             EmptyView()
         }

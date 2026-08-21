@@ -1,4 +1,3 @@
-import AppKit
 import SwiftUI
 
 /// 设置窗口页面。
@@ -32,13 +31,13 @@ enum SettingsPage: String, CaseIterable, Identifiable {
     }
 }
 
-/// 设置窗口主视图：左侧边栏分页，侧栏底部为玻璃风格的关于/版本/退出区。
+/// 设置窗口主视图：左侧边栏分页，侧栏底部显示纯文本版本号。
 struct SettingsWindowView: View {
     @State private var selection: SettingsPage? = .service
 
     var body: some View {
         NavigationSplitView {
-            List(SettingsPage.allCases.filter { $0 != .about }, selection: $selection) { page in
+            List(SettingsPage.allCases, selection: $selection) { page in
                 Label(page.title, systemImage: page.systemImage)
                     .tag(page)
             }
@@ -51,30 +50,12 @@ struct SettingsWindowView: View {
         }
     }
 
-    /// 侧栏底部：关于入口、版本号与一键退出（macOS 26 玻璃风格卡片）。
+    /// 侧栏底部：纯文本版本号。
     private var sidebarFooter: some View {
-        VStack(spacing: 8) {
-            Button {
-                selection = .about
-            } label: {
-                Label("关于", systemImage: SettingsPage.about.systemImage)
-            }
-            .buttonStyle(.bordered)
-
-            Text("版本 \(AppInfo.version)")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            Button("退出 AT2DLX") {
-                NSApp.terminate(nil)
-            }
-            .buttonStyle(.plain)
-            .font(.caption)
+        Text("版本 \(AppInfo.version)")
+            .font(.caption2)
             .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(10)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
-        .padding(8)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
     }
 }
