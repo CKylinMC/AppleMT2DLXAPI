@@ -26,11 +26,13 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "character.bubble.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
+            // 展示与应用图标（AppIcon）一致的真实图标；
+            // 注意：AppIcon 不会以命名资源形式导出到 Assets.car，
+            // 需通过 NSApplication.applicationIconImage 获取
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .scaledToFit()
                 .frame(width: 96, height: 96)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22))
 
             Text(AppInfo.displayName)
                 .font(.title2)

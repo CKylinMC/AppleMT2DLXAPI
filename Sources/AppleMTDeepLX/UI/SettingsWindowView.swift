@@ -29,6 +29,14 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .about: "info.circle"
         }
     }
+
+    /// 自定义图标资源名（优先于 systemImage）；翻译页使用彩色 App 图标。
+    var customImage: String? {
+        switch self {
+        case .translation: "AppGlyph"
+        default: nil
+        }
+    }
 }
 
 /// 设置窗口主视图：左侧边栏分页，侧栏底部显示纯文本版本号。
@@ -38,7 +46,7 @@ struct SettingsWindowView: View {
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $selection) { page in
-                Label(page.title, systemImage: page.systemImage)
+                pageLabel(page)
                     .tag(page)
             }
             .navigationSplitViewColumnWidth(180)
@@ -57,5 +65,22 @@ struct SettingsWindowView: View {
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
+    }
+
+    /// 侧栏分页项：有自定义图标资源时用资源图，否则用 SF Symbol。
+    @ViewBuilder
+    private func pageLabel(_ page: SettingsPage) -> some View {
+        if let customImage = page.customImage {
+            Label {
+                Text(page.title)
+            } icon: {
+                Image(customImage)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+            }
+        } else {
+            Label(page.title, systemImage: page.systemImage)
+        }
     }
 }

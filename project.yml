@@ -20,6 +20,7 @@ targets:
     sources:
       - path: Sources/AppleMTDeepLX
       - path: Resources/Assets.xcassets
+      - path: Resources/Icons/AppIcon.icon
     dependencies:
       - package: Sparkle
     settings:
