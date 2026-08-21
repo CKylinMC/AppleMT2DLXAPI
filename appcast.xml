@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>AppleMTDeepLX Releases</title>
+    <link>https://raw.githubusercontent.com/CKylinMC/AppleMT2DLXAPI/release/appcast.xml</link>
+    <description>AT2DLX 本地翻译服务自动更新源</description>
+    <language>zh-hans</language>
+    <item>
+      <title>Version 1.0.2</title>
+      <pubDate>Fri, 21 Aug 2026 08:41:55 +0000</pubDate>
+      <description><![CDATA[
+<p><b>✨ 新增功能</b></p>
+<ul>
+<li>集成 Sparkle 框架实现应用自动更新功能</li>
+</ul>
+]]></description>
+      <enclosure url="https://github.com/CKylinMC/AppleMT2DLXAPI/releases/download/v1.0.2/AppleMTDeepLX-1.0.2.zip"
+                 sparkle:version="1.0.2"
+                 sparkle:shortVersionString="1.0.2"
+                 sparkle:edSignature="c+XwzL1cxOsbXNCGZp8y/X/4jsczSRn33nytnKH2CJ+wHcEBSgpoMz5mlkdpkMD85e2VUa9ThqEnAAEMJB3KCQ=="
+                 length="1251500"
+                 type="application/octet-stream" />
+    </item>
+  </channel>
+</rss>
