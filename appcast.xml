@@ -37,5 +37,21 @@
                  length="1250692"
                  type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 1.0.4</title>
+      <pubDate>Fri, 21 Aug 2026 11:14:21 +0000</pubDate>
+      <description><![CDATA[
+<p><b>✨ 新增功能</b></p>
+<ul>
+<li>更新应用图标和菜单栏图标资源</li>
+</ul>
+]]></description>
+      <enclosure url="https://github.com/CKylinMC/AppleMT2DLXAPI/releases/download/v1.0.4/AppleMTDeepLX-1.0.4.zip"
+                 sparkle:version="1.0.4"
+                 sparkle:shortVersionString="1.0.4"
+                 sparkle:edSignature="gRYODdnkapvCK8ReqM29QtXMuNVkgwWIj/yMd7TSVRDHvTO6ATK11B+pw9GPCysyn0eDozEQ5UfkMXrX+595AQ=="
+                 length="3406459"
+                 type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
