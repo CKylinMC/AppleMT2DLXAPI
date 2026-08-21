@@ -30,6 +30,17 @@ struct AppSettings: Codable, Equatable, Sendable {
     /// 强制使用默认输出语言（忽略请求指定的输出语言）
     var forceDefaultTarget: Bool = false
 
+    /// 可能校验失败的设置字段（用于字段级内联错误展示）。
+    enum SettingsField: Hashable, Sendable {
+        case port
+        case maxConcurrency
+        case timeoutSeconds
+        case apiKey
+        case defaultSourceLanguage
+        case defaultTargetLanguage
+        case enabledLanguages
+    }
+
     enum ValidationIssue: String, Sendable {
         case portOutOfRange = "端口必须在 1024–65535 范围内"
         case concurrencyOutOfRange = "并发数必须在 1–50 范围内"
@@ -39,20 +50,40 @@ struct AppSettings: Codable, Equatable, Sendable {
         case defaultLanguageNotEnabled = "默认语言必须在启用语言列表内"
     }
 
-    /// 校验配置合法性，返回首个问题；nil 表示合法。
-    func validate() -> ValidationIssue? {
-        if port < 1024 { return .portOutOfRange }
-        if !(1...50).contains(maxConcurrency) { return .concurrencyOutOfRange }
-        if !(1...60).contains(timeoutSeconds) { return .timeoutOutOfRange }
-        if authEnabled && apiKey.trimmingCharacters(in: .whitespaces).isEmpty { return .apiKeyEmpty }
+    /// 校验配置合法性，按字段归集全部问题；空字典表示合法。
+    func validationIssues() -> [SettingsField: ValidationIssue] {
+        var issues: [SettingsField: ValidationIssue] = [:]
+        if port < 1024 { issues[.port] = .portOutOfRange }
+        if !(1...50).contains(maxConcurrency) { issues[.maxConcurrency] = .concurrencyOutOfRange }
+        if !(1...60).contains(timeoutSeconds) { issues[.timeoutSeconds] = .timeoutOutOfRange }
+        if authEnabled && apiKey.trimmingCharacters(in: .whitespaces).isEmpty { issues[.apiKey] = .apiKeyEmpty }
 
         // 语言策略：默认语言码必须合法，且启用列表非空时须包含在列表内
         let policy = LanguagePolicy(settings: self)
-        if defaultSourceCode != nil && policy.defaultSourceCode == nil { return .invalidDefaultLanguage }
-        if defaultTargetCode != nil && policy.defaultTargetCode == nil { return .invalidDefaultLanguage }
-        if let code = policy.defaultSourceCode, !policy.isEnabled(code) { return .defaultLanguageNotEnabled }
-        if let code = policy.defaultTargetCode, !policy.isEnabled(code) { return .defaultLanguageNotEnabled }
-        return nil
+        if defaultSourceCode != nil && policy.defaultSourceCode == nil {
+            issues[.defaultSourceLanguage] = .invalidDefaultLanguage
+        }
+        if defaultTargetCode != nil && policy.defaultTargetCode == nil {
+            issues[.defaultTargetLanguage] = .invalidDefaultLanguage
+        }
+        if let code = policy.defaultSourceCode, !policy.isEnabled(code) {
+            issues[.defaultSourceLanguage] = .defaultLanguageNotEnabled
+        }
+        if let code = policy.defaultTargetCode, !policy.isEnabled(code) {
+            issues[.defaultTargetLanguage] = .defaultLanguageNotEnabled
+        }
+        return issues
+    }
+
+    /// 校验配置合法性，返回首个问题；nil 表示合法。
+    func validate() -> ValidationIssue? {
+        validationIssues().values.first
+    }
+
+    /// 生成随机 API 密钥（32 位字母数字）。
+    static func generateAPIKey() -> String {
+        let characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return String((0..<32).compactMap { _ in characters.randomElement() })
     }
 
     /// 对外展示的服务地址。

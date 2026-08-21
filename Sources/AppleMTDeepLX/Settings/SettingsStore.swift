@@ -26,12 +26,13 @@ final class SettingsStore {
     @ObservationIgnored
     private let defaults: UserDefaults
 
-    /// 以事务方式修改配置并持久化；校验失败时抛出错误且不写入。
+    /// 以事务方式修改配置并持久化；校验失败时抛出字段级错误且不写入。
     func update(_ mutate: (inout AppSettings) -> Void) throws {
         var new = settings
         mutate(&new)
-        if let issue = new.validate() {
-            throw SettingsError.invalid(issue)
+        let issues = new.validationIssues()
+        if !issues.isEmpty {
+            throw SettingsError.invalid(issues)
         }
         settings = new
         persist()
@@ -55,11 +56,11 @@ final class SettingsStore {
 }
 
 enum SettingsError: LocalizedError {
-    case invalid(AppSettings.ValidationIssue)
+    case invalid([AppSettings.SettingsField: AppSettings.ValidationIssue])
 
     var errorDescription: String? {
         switch self {
-        case .invalid(let issue): issue.rawValue
+        case .invalid(let issues): issues.values.first?.rawValue
         }
     }
 }

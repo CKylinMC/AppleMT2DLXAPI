@@ -8,6 +8,8 @@ struct SettingsView: View {
     @State private var showLoginApprovalAlert = false
     /// 系统语言包安装状态探测结果（仅 UI 提示）
     @State private var supportStatuses: [String: LanguageSupportStatus] = [:]
+    /// 字段级校验错误（最近一次被拒绝的写入）
+    @State private var fieldErrors: [AppSettings.SettingsField: AppSettings.ValidationIssue] = [:]
 
     private var settings: AppSettings {
         appState.store.settings
@@ -112,17 +114,27 @@ struct SettingsView: View {
 
     private var languageSection: some View {
         Section("语言") {
-            Picker("默认输入语言", selection: binding(\.defaultSourceCode)) {
+            Picker("默认输入语言", selection: defaultLanguageBinding(\.defaultSourceCode)) {
                 Text("未设置").tag(String?.none)
                 ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
                     Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
+                        .disabled(supportStatuses[code] == .unsupported)
                 }
             }
-            Picker("默认输出语言", selection: binding(\.defaultTargetCode)) {
+            fieldError(.defaultSourceLanguage)
+            if defaultLanguageUnsupported(settings.defaultSourceCode) {
+                unsupportedDefaultHint("输入")
+            }
+            Picker("默认输出语言", selection: defaultLanguageBinding(\.defaultTargetCode)) {
                 Text("未设置").tag(String?.none)
                 ForEach(LanguageCodes.validTargetCodes, id: \.self) { code in
                     Text("\(LanguageCodes.displayName(for: code))（\(code)）").tag(String?.some(code))
+                        .disabled(supportStatuses[code] == .unsupported)
                 }
+            }
+            fieldError(.defaultTargetLanguage)
+            if defaultLanguageUnsupported(settings.defaultTargetCode) {
+                unsupportedDefaultHint("输出")
             }
             Toggle("强制使用默认输入语言", isOn: binding(\.forceDefaultSource))
                 .disabled(settings.defaultSourceCode == nil)
@@ -140,11 +152,25 @@ struct SettingsView: View {
                 }
                 .frame(height: 240)
             }
+            fieldError(.defaultSourceLanguage, .defaultTargetLanguage)
 
-            Text("未勾选任何语言 = 全部启用；默认语言需包含在启用列表内。未指定输出语言或输出与输入相同时使用默认输出语言；自动检测的输入语言不可用时使用默认输入语言。")
+            Text("未勾选任何语言 = 全部启用；设置默认语言会自动勾选到启用列表。未指定输出语言或输出与输入相同时使用默认输出语言；自动检测的输入语言不可用时使用默认输入语言。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// 当前默认语言是否被探测为系统不支持（探测属 UI 启发式，不进 validationIssues）。
+    private func defaultLanguageUnsupported(_ code: String?) -> Bool {
+        guard let code else { return false }
+        return supportStatuses[code] == .unsupported
+    }
+
+    /// 默认语言不受支持的提示。
+    private func unsupportedDefaultHint(_ direction: String) -> some View {
+        Text("该语言不受系统支持，请更换默认\(direction)语言")
+            .font(.footnote)
+            .foregroundStyle(.red)
     }
 
     /// 启用语言勾选行：本地化名 + 码 + 系统安装状态徽标。
@@ -184,9 +210,19 @@ struct SettingsView: View {
 
     private var authSection: some View {
         Section("鉴权") {
-            Toggle("启用鉴权", isOn: binding(\.authEnabled))
+            Toggle("启用鉴权", isOn: authEnabledBinding)
             if settings.authEnabled {
-                SecureField("API 密钥", text: binding(\.apiKey))
+                HStack {
+                    TextField("API 密钥", text: binding(\.apiKey))
+                        .textSelection(.enabled)
+                    Button {
+                        commit { $0.apiKey = AppSettings.generateAPIKey() }
+                    } label: {
+                        Image(systemName: "dice")
+                    }
+                    .help("随机生成新密钥")
+                }
+                fieldError(.apiKey)
                 Text("客户端可通过 Authorization: Bearer、DeepL-Auth-Key 头或 ?token= 参数携带密钥。")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -207,16 +243,42 @@ struct SettingsView: View {
 
     // MARK: - 绑定
 
-    /// 经校验写入的配置绑定。
+    /// 经校验写入的配置绑定；错误走字段级内联展示。
     private func binding<T>(_ keyPath: WritableKeyPath<AppSettings, T>) -> Binding<T> {
         Binding(
             get: { appState.store.settings[keyPath: keyPath] },
             set: { newValue in
-                do {
-                    try appState.store.update { $0[keyPath: keyPath] = newValue }
-                    appState.errorMessage = nil
-                } catch {
-                    appState.errorMessage = error.localizedDescription
+                commit { $0[keyPath: keyPath] = newValue }
+            })
+    }
+
+    /// 默认语言绑定：同一事务内写默认码并自动加入启用列表；选“未设置”仅清默认码，
+    /// 不反向移除已勾选语言。
+    private func defaultLanguageBinding(_ keyPath: WritableKeyPath<AppSettings, String?>) -> Binding<String?> {
+        Binding(
+            get: { appState.store.settings[keyPath: keyPath] },
+            set: { newValue in
+                // 二次防御：不允许把不受支持的语言设为默认
+                if let code = newValue, supportStatuses[code] == .unsupported { return }
+                commit {
+                    $0[keyPath: keyPath] = newValue
+                    if let code = newValue {
+                        $0.enabledLanguages.insert(code)
+                    }
+                }
+            })
+    }
+
+    /// 鉴权开关绑定：开启时若密钥为空则同事务自动生成随机密钥；关闭时保留已有密钥。
+    private var authEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { appState.store.settings.authEnabled },
+            set: { enabled in
+                commit {
+                    $0.authEnabled = enabled
+                    if enabled && $0.apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+                        $0.apiKey = AppSettings.generateAPIKey()
+                    }
                 }
             })
     }
@@ -226,19 +288,40 @@ struct SettingsView: View {
         Binding(
             get: { appState.store.settings.enabledLanguages.contains(code) },
             set: { enabled in
-                do {
-                    try appState.store.update {
-                        if enabled {
-                            $0.enabledLanguages.insert(code)
-                        } else {
-                            $0.enabledLanguages.remove(code)
-                        }
+                commit {
+                    if enabled {
+                        $0.enabledLanguages.insert(code)
+                    } else {
+                        $0.enabledLanguages.remove(code)
                     }
-                    appState.errorMessage = nil
-                } catch {
-                    appState.errorMessage = error.localizedDescription
                 }
             })
+    }
+
+    /// 统一写入入口：成功时清空字段错误；校验失败时记录字段错误供内联展示。
+    private func commit(_ mutate: (inout AppSettings) -> Void) {
+        do {
+            try appState.store.update(mutate)
+            fieldErrors = [:]
+        } catch let error as SettingsError {
+            if case .invalid(let issues) = error {
+                fieldErrors = issues
+            }
+        } catch {
+            appState.errorMessage = error.localizedDescription
+        }
+    }
+
+    /// 对应字段下方的内联错误：优先最近一次被拒绝的错误，
+    /// 其次由当前配置派生（覆盖旧存档加载的既有非法状态）。
+    @ViewBuilder
+    private func fieldError(_ fields: AppSettings.SettingsField...) -> some View {
+        let derived = settings.validationIssues()
+        if let issue = fields.lazy.compactMap({ fieldErrors[$0] ?? derived[$0] }).first {
+            Text(issue.rawValue)
+                .font(.footnote)
+                .foregroundStyle(.red)
+        }
     }
 
     /// 开机自启动绑定：调用 SMAppService，并处理批准流程。
