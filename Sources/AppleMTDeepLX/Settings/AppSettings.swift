@@ -29,6 +29,8 @@ struct AppSettings: Codable, Equatable, Sendable {
     var forceDefaultSource: Bool = false
     /// 强制使用默认输出语言（忽略请求指定的输出语言）
     var forceDefaultTarget: Bool = false
+    /// 自动输出语言规则池（target_lang=auto/AUTO 时自上而下匹配）；空 = 使用内置默认规则
+    var autoTargetRules: [AutoTargetRule] = []
 
     /// 可能校验失败的设置字段（用于字段级内联错误展示）。
     enum SettingsField: Hashable, Sendable {
@@ -39,6 +41,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case defaultSourceLanguage
         case defaultTargetLanguage
         case enabledLanguages
+        case autoTargetRules
     }
 
     enum ValidationIssue: String, Sendable {
@@ -48,6 +51,7 @@ struct AppSettings: Codable, Equatable, Sendable {
         case apiKeyEmpty = "已开启鉴权，API 密钥不能为空"
         case invalidDefaultLanguage = "默认语言码不合法"
         case defaultLanguageNotEnabled = "默认语言必须在启用语言列表内"
+        case invalidAutoRule = "自动语言规则存在错误（见下方红字提示）"
     }
 
     /// 校验配置合法性，按字段归集全部问题；空字典表示合法。
@@ -71,6 +75,9 @@ struct AppSettings: Codable, Equatable, Sendable {
         }
         if let code = policy.defaultTargetCode, !policy.isEnabled(code) {
             issues[.defaultTargetLanguage] = .defaultLanguageNotEnabled
+        }
+        if autoTargetRules.contains(where: { $0.validationIssue(policy: policy) != nil }) {
+            issues[.autoTargetRules] = .invalidAutoRule
         }
         return issues
     }
@@ -122,5 +129,6 @@ extension AppSettings {
         defaultTargetCode = try container.decodeIfPresent(String.self, forKey: .defaultTargetCode)
         forceDefaultSource = try container.decodeIfPresent(Bool.self, forKey: .forceDefaultSource) ?? false
         forceDefaultTarget = try container.decodeIfPresent(Bool.self, forKey: .forceDefaultTarget) ?? false
+        autoTargetRules = try container.decodeIfPresent([AutoTargetRule].self, forKey: .autoTargetRules) ?? []
     }
 }

@@ -101,4 +101,23 @@ enum LanguageCodes {
         }
         return normalized
     }
+
+    /// 自动语言规则的"规则族键"：languages 模式按族键比较条件与源语言。
+    /// 与 baseCode 的差异在于书写体系：简体 ZH 与 ZH-HANS 同族、繁体 ZH-HANT 独立；
+    /// EN/EN-US/EN-GB 与 PT/PT-BR/PT-PT 收敛为同一族，其余码按基础码分组。
+    static func ruleFamilyKey(of code: String) -> String {
+        let normalized = code.trimmingCharacters(in: .whitespaces).uppercased()
+        switch normalized {
+        case "ZH", "ZH-HANS":
+            return "ZH-HANS"
+        case "ZH-HANT":
+            return "ZH-HANT"
+        case "EN", "EN-US", "EN-GB":
+            return "EN"
+        case "PT", "PT-BR", "PT-PT":
+            return "PT"
+        default:
+            return normalized.isEmpty ? normalized : baseCode(of: normalized)
+        }
+    }
 }

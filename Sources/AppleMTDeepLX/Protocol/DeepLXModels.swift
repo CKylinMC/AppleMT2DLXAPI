@@ -9,11 +9,32 @@ struct FreeTranslateRequest: Decodable {
     let target_lang: String?
 }
 
-/// DeepL 官方 v2 端点请求体（text 为数组）。
+/// DeepL 官方 v2 端点请求体（text 为字符串数组，兼容官方 API 的单字符串形式）。
 struct V2TranslateRequest: Decodable {
     let text: [String]
     let source_lang: String?
     let target_lang: String?
+
+    init(text: [String], source_lang: String?, target_lang: String?) {
+        self.text = text
+        self.source_lang = source_lang
+        self.target_lang = target_lang
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case text, source_lang, target_lang
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let single = try? container.decode(String.self, forKey: .text) {
+            text = [single]
+        } else {
+            text = try container.decode([String].self, forKey: .text)
+        }
+        source_lang = try container.decodeIfPresent(String.self, forKey: .source_lang)
+        target_lang = try container.decodeIfPresent(String.self, forKey: .target_lang)
+    }
 }
 
 // MARK: - 响应 DTO

@@ -19,7 +19,8 @@ final class Router: Sendable {
                 await handler.handleFreeTranslate(request, authGuard: authGuard, method: "Free")
             },
             RouteKey(method: "POST", path: "/v1/translate"): { request in
-                await handler.handleFreeTranslate(request, authGuard: authGuard, method: "Free")
+                // DeepLX Pro 端点：请求格式与 free 一致，响应 method 回填 "Pro"
+                await handler.handleFreeTranslate(request, authGuard: authGuard, method: "Pro")
             },
             RouteKey(method: "POST", path: "/v2/translate"): { request in
                 await handler.handleV2Translate(request, authGuard: authGuard)
