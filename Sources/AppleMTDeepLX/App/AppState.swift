@@ -88,6 +88,20 @@ final class AppState {
         pasteboard.setString(serviceURL, forType: .string)
     }
 
+    /// 立刻清空翻译队列：排队中的请求以 429 终止（在途批次不受影响）。
+    func clearQueue() {
+        Task { [scheduler] in
+            await scheduler.clearQueue()
+        }
+    }
+
+    /// 重置累计计数（完成/拒绝/失败归零；在途/排队为实时仪表不受影响）。
+    func resetStats() {
+        Task { [stats] in
+            await stats.reset()
+        }
+    }
+
     // MARK: - 内部编排
 
     private func handleSettingsChanged(_ settings: AppSettings) {
@@ -104,6 +118,11 @@ final class AppState {
     }
 
     private func startServer(with settings: AppSettings) {
+        // 服务重启语义：除计数（ServerStats）外全部重置——清空排队与在途作业、
+        // 重置并发槽位与翻译会话池，使服务以干净状态启动
+        Task { [scheduler] in
+            await scheduler.resetAll()
+        }
         appliedServerSnapshot = settings
         serverState = .stopped
         server.start(port: settings.port, allowLAN: settings.allowLAN, autoSelect: settings.autoSelectPort)

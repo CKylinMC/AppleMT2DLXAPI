@@ -33,6 +33,13 @@ actor ServerStats {
         failed += 1
     }
 
+    /// 重置累计计数（在途/排队为实时仪表，由调度器持续回写，不归零）。
+    func reset() {
+        completed = 0
+        rejected = 0
+        failed = 0
+    }
+
     func snapshot() -> Snapshot {
         Snapshot(running: running, queued: queued, completed: completed, rejected: rejected, failed: failed)
     }

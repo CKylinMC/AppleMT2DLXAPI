@@ -17,11 +17,14 @@ struct TranslationResult: Sendable {
 /// 翻译调度器：并发上限 + FIFO 排队 + 超时 + 机会式合批。
 ///
 /// - 每个 API 请求作为一个作业入队；并发上限约束的是"在途批次"数量
-/// - 队列满（256）立即拒绝 → 429
-/// - 超时覆盖完整生命周期：排队等待超时在出队时判定；执行中超时由看门狗
-///   调用 session.cancel() 打断在途翻译
+/// - 队列满（256）时先清扫全队已到期作业，仍满则立即拒绝 → 429
+/// - 超时覆盖完整生命周期：排队等待超时在出队时判定；会话获取等待超时由
+///   会话池 deadline 约束；执行超时由看门狗弃用批次（终止作业、丢弃会话、释放槽位），
+///   单槽占用上界 = 超时秒数，队列积压不可能永久化
 /// - 出队时把队头连续同语言对作业合并为一个批次（上限 16 条文本），
 ///   一次 translations(from:) 调用完成，摊薄框架开销
+/// - 服务重启（resetAll）终止全部排队与在途作业并清空会话池；后续残余回调经
+///   批次登记校验后全部无操作，杜绝双重 resume 与槽位错乱
 actor TranslationScheduler {
     struct Config: Sendable, Equatable {
         var maxConcurrency: Int = 10
@@ -37,6 +40,12 @@ actor TranslationScheduler {
         let continuation: CheckedContinuation<[TranslationResult], Error>
     }
 
+    /// 在途批次登记：登记存在 = 作业未被处置；jobsResolved 防止跨上下文重复 resume。
+    private struct BatchRecord: Sendable {
+        let jobs: [QueuedJob]
+        var jobsResolved = false
+    }
+
     /// 单批次最多合并的文本条数
     private static let batchItemLimit = 16
 
@@ -46,6 +55,7 @@ actor TranslationScheduler {
     private var config = Config()
     private var running = 0
     private var queue: [QueuedJob] = []
+    private var activeBatches: [UUID: BatchRecord] = [:]
 
     init(pool: TranslationSessionPool, stats: ServerStats) {
         self.pool = pool
@@ -79,9 +89,47 @@ actor TranslationScheduler {
         }
     }
 
+    /// 清空排队中的作业（在途批次不受影响），已排队请求以 429 终止。
+    func clearQueue() {
+        let flushed = queue
+        queue.removeAll()
+        for job in flushed {
+            job.continuation.resume(throwing: TranslationEngineError.queueFlushed)
+        }
+        if !flushed.isEmpty {
+            logger.notice("清空队列 \(flushed.count) 个待处理作业")
+        }
+        updateGauges()
+    }
+
+    /// 服务重启重置：清空队列、终止全部在途批次、重置槽位与会话池。
+    /// 统计（累计完成/拒绝/失败）由调用方（AppState）保留，不在此归零。
+    func resetAll() {
+        let flushed = queue
+        queue.removeAll()
+        for job in flushed {
+            job.continuation.resume(throwing: TranslationEngineError.queueFlushed)
+        }
+        let abandonedJobs = activeBatches.values.flatMap(\.jobs)
+        activeBatches.removeAll()
+        for job in abandonedJobs {
+            job.continuation.resume(throwing: TranslationEngineError.queueFlushed)
+        }
+        running = 0
+        Task { await pool.resetAll() }
+        if !flushed.isEmpty || !abandonedJobs.isEmpty {
+            logger.notice("服务重置：终止排队 \(flushed.count) 个、在途 \(abandonedJobs.count) 个作业")
+        }
+        updateGauges()
+    }
+
     // MARK: - 排队与调度
 
     private func enqueue(_ job: QueuedJob) {
+        if queue.count >= config.maxQueueSize {
+            // 队列已满时先清扫全队已到期作业腾出空间，再决定拒绝
+            purgeExpired()
+        }
         if queue.count >= config.maxQueueSize {
             logger.warning("队列已满，拒绝请求（排队 \(self.queue.count)）")
             job.continuation.resume(throwing: TranslationEngineError.queueFull)
@@ -105,14 +153,9 @@ actor TranslationScheduler {
         updateGauges()
     }
 
-    /// 丢弃已超时作业后，从队头取连续同语言对作业组成批次。
+    /// 丢弃全部已到期作业后，从队头取连续同语言对作业组成批次。
     private func takeBatch() -> [QueuedJob] {
-        let now = Date()
-        while let first = queue.first, first.deadline < now {
-            queue.removeFirst()
-            first.continuation.resume(throwing: TranslationEngineError.timeout)
-            Task { await stats.recordRejected() }
-        }
+        purgeExpired()
         guard let first = queue.first else { return [] }
 
         var batch: [QueuedJob] = []
@@ -129,50 +172,104 @@ actor TranslationScheduler {
         return batch
     }
 
+    /// 清扫整条队列中已到期的作业（不限于队头），逐个按超时终止。
+    private func purgeExpired() {
+        guard !queue.isEmpty else { return }
+        let now = Date()
+        queue.removeAll { job in
+            guard job.deadline < now else { return false }
+            job.continuation.resume(throwing: TranslationEngineError.timeout)
+            Task { await stats.recordRejected() }
+            return true
+        }
+    }
+
     // MARK: - 批次执行
 
     private func run(batch: [QueuedJob]) async {
+        let id = UUID()
         let source = batch[0].source
         let target = batch[0].target
         let earliestDeadline = batch.map(\.deadline).min() ?? .distantFuture
         let flatItems = batch.flatMap(\.items)
+        activeBatches[id] = BatchRecord(jobs: batch)
 
+        var watchdog: Task<Void, Never>?
         do {
-            let session = try await pool.acquire(source: source, target: target)
+            // 会话获取（含等待）受 deadline 约束：超时由会话池抛 .timeout
+            let session = try await pool.acquire(source: source, target: target, deadline: earliestDeadline)
+            guard activeBatches[id] != nil else {
+                // 等待期间批次已被处置（服务重置）：无后续义务
+                return
+            }
+            // 看门狗：到达最早截止时间时若批次仍未完成，弃用批次（终止作业、
+            // 丢弃可能已损坏的会话、释放槽位），即使框架调用不返回也能解堵队列
+            watchdog = Task {
+                let interval = earliestDeadline.timeIntervalSinceNow
+                if interval > 0 {
+                    try? await Task.sleep(for: .seconds(interval))
+                }
+                if !Task.isCancelled {
+                    await self.expireBatch(id: id, source: source, target: target)
+                }
+            }
+
             var shouldInvalidate = false
             do {
-                // 看门狗：到达最早截止时间时打断在途翻译
-                let watchdog = Task {
-                    let interval = earliestDeadline.timeIntervalSinceNow
-                    if interval > 0 {
-                        try? await Task.sleep(for: .seconds(interval))
-                    }
-                    if !Task.isCancelled {
-                        session.cancel()
-                    }
-                }
                 let responses = try await executeChunks(session: session, items: flatItems)
-                watchdog.cancel()
+                watchdog?.cancel()
+                // 执行跨过截止时间被看门狗处置 → 跳过回填（作业已按超时终止）
+                guard markJobsResolved(id: id) else { return }
                 distributeResults(batch: batch, responses: responses)
             } catch {
+                watchdog?.cancel()
+                // 已被看门狗处置 → 槽位与会话由其负责，直接退出
+                guard markJobsResolved(id: id, throwing: Self.mapEngineError(error)) else { return }
                 shouldInvalidate = TranslationError.internalError ~= error
-                let mapped = Self.mapEngineError(error)
                 logger.error("翻译失败：\(error.localizedDescription, privacy: .public)")
-                for job in batch {
-                    job.continuation.resume(throwing: mapped)
-                }
                 Task { await stats.recordFailed() }
             }
             await pool.release(source: source, target: target, invalidate: shouldInvalidate)
         } catch {
-            // 会话获取失败（语言对不支持 / 语言包未安装）
-            for job in batch {
-                job.continuation.resume(throwing: error)
-            }
+            // 会话获取失败（语言对不支持 / 语言包未安装 / 等待超时 / 服务重置）
+            guard markJobsResolved(id: id, throwing: error) else { return }
             Task { await stats.recordFailed() }
         }
+        finishSlot(id: id)
+    }
 
-        finishSlot()
+    /// 看门狗到期处置：批次未完成时终止全部作业、弃用会话并释放槽位。
+    private func expireBatch(id: UUID, source: Locale.Language, target: Locale.Language) async {
+        guard activeBatches[id] != nil else { return }
+        guard markJobsResolved(id: id, throwing: TranslationEngineError.timeout) else { return }
+        logger.warning("批次超时弃用（在途 \(self.running) 槽位中，排队 \(self.queue.count)）")
+        await pool.release(source: source, target: target, invalidate: true)
+        finishSlot(id: id)
+    }
+
+    /// 标记批次作业已处置并终止全部作业；返回 false 表示已有处置方（防双重 resume）。
+    private func markJobsResolved(id: UUID, throwing error: Error) -> Bool {
+        guard var record = activeBatches[id], !record.jobsResolved else { return false }
+        record.jobsResolved = true
+        activeBatches[id] = record
+        for job in record.jobs {
+            job.continuation.resume(throwing: error)
+        }
+        return true
+    }
+
+    /// 标记批次成功回填（执行完成后回填前调用，防看门狗在收尾窗口重复处置）。
+    private func markJobsResolved(id: UUID) -> Bool {
+        guard var record = activeBatches[id], !record.jobsResolved else { return false }
+        record.jobsResolved = true
+        activeBatches[id] = record
+        return true
+    }
+
+    private func finishSlot(id: UUID) {
+        guard activeBatches.removeValue(forKey: id) != nil else { return }
+        running = max(0, running - 1)
+        pump()
     }
 
     /// 分块调用 translations(from:)，保持结果顺序。
@@ -214,11 +311,6 @@ actor TranslationScheduler {
         if successCount > 0 {
             Task { await stats.recordCompleted(count: successCount) }
         }
-    }
-
-    private func finishSlot() {
-        running -= 1
-        pump()
     }
 
     private func updateGauges() {

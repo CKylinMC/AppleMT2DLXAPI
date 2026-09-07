@@ -10,6 +10,8 @@ enum TranslationEngineError: Error, Sendable {
     case timeout
     /// 队列已满 → 429
     case queueFull
+    /// 队列被清空 / 服务重置，排队中的作业被终止 → 429
+    case queueFlushed
     /// 上游引擎内部错误 → 503
     case engineFailure(message: String)
 }
@@ -19,7 +21,7 @@ extension TranslationEngineError {
         switch self {
         case .unsupportedPair: 400
         case .languagePackNotInstalled: 503
-        case .timeout, .queueFull: 429
+        case .timeout, .queueFull, .queueFlushed: 429
         case .engineFailure: 503
         }
     }
@@ -31,6 +33,7 @@ extension TranslationEngineError {
             "language pack for \(pair) is not installed; download it in System Settings or translate once in a system app"
         case .timeout: "translation timed out"
         case .queueFull: "too many requests; translation queue is full"
+        case .queueFlushed: "translation queue was cleared; retry later"
         case .engineFailure(let message): "translation engine failure: \(message)"
         }
     }
