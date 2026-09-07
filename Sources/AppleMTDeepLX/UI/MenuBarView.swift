@@ -18,6 +18,14 @@ struct MenuBarView: View {
             appState.copyServiceURL()
         }
 
+        Button("清空队列") {
+            appState.clearQueue()
+        }
+
+        Button("重置计数") {
+            appState.resetStats()
+        }
+
         Divider()
 
         Button("检查更新…") {

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 设置窗口页面。
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case service, network, translation, language, auth, general, about
+    case service, network, translation, language, autoLang, auth, general, about
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .network: "网络"
         case .translation: "翻译"
         case .language: "语言"
+        case .autoLang: "自动语言"
         case .auth: "鉴权"
         case .general: "通用"
         case .about: "关于"
@@ -24,17 +25,10 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .network: "network"
         case .translation: "character.bubble"
         case .language: "globe"
+        case .autoLang: "arrow.triangle.2.circlepath"
         case .auth: "key"
         case .general: "gearshape"
         case .about: "info.circle"
-        }
-    }
-
-    /// 自定义图标资源名（优先于 systemImage）；翻译页使用彩色 App 图标。
-    var customImage: String? {
-        switch self {
-        case .translation: "AppGlyph"
-        default: nil
         }
     }
 }
@@ -67,20 +61,9 @@ struct SettingsWindowView: View {
             .padding(.vertical, 8)
     }
 
-    /// 侧栏分页项：有自定义图标资源时用资源图，否则用 SF Symbol。
+    /// 侧栏分页项：全部使用 SF Symbol 图标（不使用应用图标资源）。
     @ViewBuilder
     private func pageLabel(_ page: SettingsPage) -> some View {
-        if let customImage = page.customImage {
-            Label {
-                Text(page.title)
-            } icon: {
-                Image(customImage)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 16, height: 16)
-            }
-        } else {
-            Label(page.title, systemImage: page.systemImage)
-        }
+        Label(page.title, systemImage: page.systemImage)
     }
 }

@@ -46,6 +46,15 @@ struct SettingsView: View {
                     serviceSection
                     Section("运行状态") {
                         StatusPanelView(stats: appState.stats)
+                        HStack {
+                            Button("清空队列") {
+                                appState.clearQueue()
+                            }
+                            Button("重置计数") {
+                                appState.resetStats()
+                            }
+                        }
+                        .font(.footnote)
                     }
                 case .network:
                     networkSection
@@ -53,6 +62,8 @@ struct SettingsView: View {
                     translationSection
                 case .language:
                     languageSection
+                case .autoLang:
+                    autoLangSection
                 case .auth:
                     authSection
                 case .general:
@@ -111,6 +122,23 @@ struct SettingsView: View {
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// 自动语言规则页：target_lang=auto/AUTO 的输出语言规则池（独立区块承载编辑）。
+    private var autoLangSection: some View {
+        AutoRulesSection(
+            settings: settings,
+            supportedCodes: supportedLanguageCodes,
+            topErrorText: autoRulesTopError,
+            commitAction: { rules in
+                commit { $0.autoTargetRules = rules }
+            })
+    }
+
+    /// 自动语言规则区顶层错误：最近一次被拒绝的写入优先，其次由当前配置派生。
+    private var autoRulesTopError: String? {
+        if let issue = fieldErrors[.autoTargetRules] { return issue.rawValue }
+        return settings.validationIssues()[.autoTargetRules]?.rawValue
     }
 
     private var languageSection: some View {
