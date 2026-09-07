@@ -53,5 +53,28 @@
                  length="3406459"
                  type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 1.1.0</title>
+      <pubDate>Mon, 07 Sep 2026 07:02:19 +0000</pubDate>
+      <description><![CDATA[
+<p><b>✨ 新增功能</b></p>
+<ul>
+<li>新增"自动语言"设置页与队列控制按钮，翻译侧栏改用系统图标</li>
+<li>target_lang=auto/AUTO 规则化输出语言，端点按官方文档对齐</li>
+<li>添加应用图标文件</li>
+</ul>
+<p><b>🐛 问题修复</b></p>
+<ul>
+<li>队列满清扫与看门狗绝对兜底，杜绝 256 积压无法消除</li>
+<li>修复版本号校验与构建号传递问题</li>
+</ul>
+]]></description>
+      <enclosure url="https://github.com/CKylinMC/AppleMT2DLXAPI/releases/download/v1.1.0/AppleMTDeepLX-1.1.0.zip"
+                 sparkle:version="6"
+                 sparkle:shortVersionString="1.1.0"
+                 sparkle:edSignature="gRHwpSgVcDqvg2OTB8l505C/a4uIbjBorasJlpfSEIMKHwbrBtYZRzpdZd+noa0djSF+XqqD+vEdZ25kdc+wAg=="
+                 length="3486553"
+                 type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
