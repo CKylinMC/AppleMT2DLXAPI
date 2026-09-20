@@ -36,19 +36,34 @@ enum SettingsPage: String, CaseIterable, Identifiable {
 /// 设置窗口主视图：左侧边栏分页，侧栏底部显示纯文本版本号。
 struct SettingsWindowView: View {
     @State private var selection: SettingsPage? = .service
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             List(SettingsPage.allCases, selection: $selection) { page in
                 pageLabel(page)
                     .tag(page)
             }
+            .toolbar(removing: .sidebarToggle)
             .navigationSplitViewColumnWidth(180)
             .safeAreaInset(edge: .bottom) {
                 sidebarFooter
             }
         } detail: {
             SettingsView(page: selection ?? .service)
+        }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    withAnimation {
+                        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+                    }
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .accessibilityLabel(Text(columnVisibility == .detailOnly ? "显示侧边栏" : "隐藏侧边栏"))
+                .help(Text(columnVisibility == .detailOnly ? "显示侧边栏" : "隐藏侧边栏"))
+            }
         }
     }
 

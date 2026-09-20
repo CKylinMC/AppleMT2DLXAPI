@@ -47,7 +47,7 @@ struct MenuBarView: View {
     private var statusItem: some View {
         switch appState.serverState {
         case .running(let port):
-            Button("运行中 · 端口 \(port)") {}.disabled(true)
+            Button("运行中 · 端口 \(String(port))") {}.disabled(true)
         case .failed(let message):
             Button("服务异常 · \(message)") {}.disabled(true)
         case .stopped:

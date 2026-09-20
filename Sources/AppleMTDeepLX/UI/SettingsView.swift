@@ -73,6 +73,7 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.grouped)
+            .scrollEdgeEffectHidden(true, for: .top)
         }
     }
 
