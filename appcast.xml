@@ -76,5 +76,21 @@
                  length="3486553"
                  type="application/octet-stream" />
     </item>
+    <item>
+      <title>Version 1.1.4</title>
+      <pubDate>Wed, 23 Sep 2026 08:07:29 +0000</pubDate>
+      <description><![CDATA[
+<p><b>🐛 问题修复</b></p>
+<ul>
+<li>stabilize settings sidebar and port display</li>
+</ul>
+]]></description>
+      <enclosure url="https://github.com/CKylinMC/AppleMT2DLXAPI/releases/download/v1.1.4/AppleMTDeepLX-1.1.4.zip"
+                 sparkle:version="10"
+                 sparkle:shortVersionString="1.1.4"
+                 sparkle:edSignature="YAgnr86ZiwsP/qCNAG7qRY7CGp7SeN9SipX9PKYlhzZrBQAd+ZDtwwbKu0rrfsETmuLfgaFODPBJtdk+g08BAw=="
+                 length="3466552"
+                 type="application/octet-stream" />
+    </item>
   </channel>
 </rss>
